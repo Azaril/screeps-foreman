@@ -1,5 +1,4 @@
-use crate::constants::*;
-use crate::visualize::*;
+#![allow(dead_code)]
 use bitflags::*;
 use log::*;
 use pathfinding::directed::astar::*;
@@ -10,6 +9,7 @@ use std::cell::RefCell;
 use std::collections::hash_map::*;
 use std::collections::*;
 use std::convert::*;
+use crate::constants::*;
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[(-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1)];
 pub const TWO_OFFSET_SQUARE: &[(i8, i8)] = &[
@@ -378,7 +378,7 @@ impl PlannerStateLayer {
         self.data
     }
 
-    pub fn visualize(&self, visualizer: &mut RoomVisualizer) {
+    pub fn visualize<T>(&self, visualizer: &mut T) where T: RoomVisualizer {
         visualize_room_items(&self.data, visualizer);
     }
 
@@ -555,7 +555,7 @@ impl PlannerState {
         self.layers.iter().flat_map(|l| l.data.iter())
     }
 
-    pub fn visualize(&self, visualizer: &mut RoomVisualizer) {
+    pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
         for layer in &self.layers {
             layer.visualize(visualizer);
         }
@@ -742,7 +742,7 @@ impl std::ops::Sub for PlanLocation {
     }
 }
 
-fn visualize_room_items<'a, T: IntoIterator<Item = (&'a Location, &'a RoomItem)>>(data: T, visualizer: &mut RoomVisualizer) {
+fn visualize_room_items<'a, T: IntoIterator<Item = (&'a Location, &'a RoomItem)>, V>(data: T, visualizer: &mut V) where V: RoomVisualizer {
     for (loc, entry) in data.into_iter() {
         match entry {
             RoomItem {
@@ -905,7 +905,7 @@ impl Plan {
         }
     }
 
-    pub fn visualize(&self, visualizer: &mut RoomVisualizer) {
+    pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
         visualize_room_items(&self.state, visualizer);
     }
 }
@@ -2828,12 +2828,42 @@ pub struct PlanRunningStateData {
     best_plan: Option<BestPlanData>,
 }
 
+pub trait RoomVisualizer {
+    fn circle(&mut self, x: f32, y: f32, style: Option<CircleStyle>);
+    fn line(&mut self, from: (f32, f32), to: (f32, f32), style: Option<LineStyle>);
+    fn rect(&mut self, x: f32, y: f32, width: f32, height: f32, style: Option<RectStyle>);
+    fn poly(&mut self, points: Vec<(f32, f32)>, style: Option<PolyStyle>);
+    fn text(&mut self, x: f32, y: f32, text: String, style: Option<TextStyle>);
+}
+
+impl RoomVisualizer for RoomVisual {
+    fn circle(&mut self, x: f32, y: f32, style: Option<CircleStyle>) {
+        RoomVisual::circle(self, x, y, style)
+    }
+
+    fn line(&mut self, from: (f32, f32), to: (f32, f32), style: Option<LineStyle>) {
+        RoomVisual::line(self, from, to, style)
+    }
+
+    fn rect(&mut self, x: f32, y: f32, width: f32, height: f32, style: Option<RectStyle>) {
+        RoomVisual::rect(self, x, y, width, height, style)
+    }
+
+    fn poly(&mut self, points: Vec<(f32, f32)>, style: Option<PolyStyle>) {
+        RoomVisual::poly(self, points, style)
+    }
+
+    fn text(&mut self, x: f32, y: f32, text: String, style: Option<TextStyle>) {
+        RoomVisual::text(self, x, y, text, style)
+    }
+}
+
 impl PlanRunningStateData {
-    pub fn visualize(&self, visualizer: &mut RoomVisualizer) {
+    pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
         self.planner_state.visualize(visualizer);
     }
 
-    pub fn visualize_best(&self, visualizer: &mut RoomVisualizer) {
+    pub fn visualize_best<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
         if let Some(best_plan) = &self.best_plan {
             visualize_room_items(best_plan.state.iter(), visualizer);
         }
