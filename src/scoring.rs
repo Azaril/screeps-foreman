@@ -1,8 +1,8 @@
 use super::planner::*;
 use crate::constants::*;
 use itertools::*;
-use screeps::*;
 use std::convert::*;
+use super::*;
 
 struct StateScore {
     score: f32,

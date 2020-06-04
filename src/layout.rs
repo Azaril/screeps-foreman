@@ -1,6 +1,6 @@
 use super::planner::*;
 use super::constants::*;
-use screeps::*;
+use super::*;
 
 //
 // Nodes

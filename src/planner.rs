@@ -2,14 +2,15 @@
 use bitflags::*;
 use log::*;
 use pathfinding::directed::astar::*;
-use screeps::*;
-use screeps_rover::*;
+use super::location::*;
 use serde::*;
 use std::cell::RefCell;
 use std::collections::hash_map::*;
 use std::collections::*;
 use std::convert::*;
 use crate::constants::*;
+use super::*;
+use super::visual::*;
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[(-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1)];
 pub const TWO_OFFSET_SQUARE: &[(i8, i8)] = &[
@@ -744,125 +745,7 @@ impl std::ops::Sub for PlanLocation {
 
 fn visualize_room_items<'a, T: IntoIterator<Item = (&'a Location, &'a RoomItem)>, V>(data: T, visualizer: &mut V) where V: RoomVisualizer {
     for (loc, entry) in data.into_iter() {
-        match entry {
-            RoomItem {
-                structure_type: StructureType::Spawn,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("green").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Extension,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("purple").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Container,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("blue").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Storage,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("red").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Link,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("orange").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Terminal,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("pink").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Nuker,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("black").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Lab,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("aqua").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::PowerSpawn,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("Fuschia").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Observer,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("Lime").opacity(1.0)),
-                );
-            }
-            RoomItem {
-                structure_type: StructureType::Factory,
-                ..
-            } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("Brown").opacity(1.0)),
-                );
-            }
-            RoomItem { .. } => {
-                visualizer.circle(
-                    loc.x() as f32,
-                    loc.y() as f32,
-                    Some(CircleStyle::default().fill("yellow").opacity(1.0)),
-                );
-            }
-        }
+        visualizer.render(*loc, entry.structure_type);
     }
 }
 
@@ -874,6 +757,7 @@ pub struct Plan {
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl Plan {
+    #[cfg(not(feature = "shim"))]
     pub fn execute(&self, room: &Room) {
         let room_name = room.name();
         let room_level = room.controller().map(|c| c.level()).unwrap_or(0);
@@ -2828,36 +2712,6 @@ pub struct PlanRunningStateData {
     best_plan: Option<BestPlanData>,
 }
 
-pub trait RoomVisualizer {
-    fn circle(&mut self, x: f32, y: f32, style: Option<CircleStyle>);
-    fn line(&mut self, from: (f32, f32), to: (f32, f32), style: Option<LineStyle>);
-    fn rect(&mut self, x: f32, y: f32, width: f32, height: f32, style: Option<RectStyle>);
-    fn poly(&mut self, points: Vec<(f32, f32)>, style: Option<PolyStyle>);
-    fn text(&mut self, x: f32, y: f32, text: String, style: Option<TextStyle>);
-}
-
-impl RoomVisualizer for RoomVisual {
-    fn circle(&mut self, x: f32, y: f32, style: Option<CircleStyle>) {
-        RoomVisual::circle(self, x, y, style)
-    }
-
-    fn line(&mut self, from: (f32, f32), to: (f32, f32), style: Option<LineStyle>) {
-        RoomVisual::line(self, from, to, style)
-    }
-
-    fn rect(&mut self, x: f32, y: f32, width: f32, height: f32, style: Option<RectStyle>) {
-        RoomVisual::rect(self, x, y, width, height, style)
-    }
-
-    fn poly(&mut self, points: Vec<(f32, f32)>, style: Option<PolyStyle>) {
-        RoomVisual::poly(self, points, style)
-    }
-
-    fn text(&mut self, x: f32, y: f32, text: String, style: Option<TextStyle>) {
-        RoomVisual::text(self, x, y, text, style)
-    }
-}
-
 impl PlanRunningStateData {
     pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
         self.planner_state.visualize(visualizer);
@@ -2943,13 +2797,13 @@ where
         Ok(seed_result)
     }
 
-    pub fn evaluate(
+    pub fn evaluate<F>(
         &self,
         root_nodes: &[&dyn PlanGlobalExpansionNode],
         data_source: &mut dyn PlannerRoomDataSource,
         evaluation_state: &mut PlanRunningStateData,
-        allowed_cpu: f64,
-    ) -> Result<PlanEvaluationResult, String> {
+        should_continue: F,
+    ) -> Result<PlanEvaluationResult, String> where F: Fn() -> bool {
         let mut current_best = evaluation_state.best_plan.as_ref().map(|p| p.score);
         let mut new_best_plan = None;
 
@@ -2967,10 +2821,6 @@ where
         };
 
         let mut planner = TreePlanner::new(data_source, &mut state_handler);
-
-        let start_cpu = game::cpu::get_used();
-
-        let should_continue = || game::cpu::get_used() - start_cpu < allowed_cpu;
 
         let evaluate_result = match planner.process(
             root_nodes,
