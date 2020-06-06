@@ -116,7 +116,7 @@ fn has_mineral_containers(state: &PlannerState, _context: &mut NodeContext) -> b
 }
 
 fn has_reachable_structures(state: &PlannerState, context: &mut NodeContext) -> bool {
-    let placements: Vec<_> = state.get_all().collect();
+    let placements: Vec<_> = state.get_all();
 
     state
         .with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {

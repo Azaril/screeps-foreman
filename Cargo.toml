@@ -9,6 +9,7 @@ edition = "2018"
 [features]
 default = ["screeps-game-api"]
 shim = []
+profile = ["screeps-timing", "screeps-timing-annotate"]
 
 [dependencies]
 log = "0.4"

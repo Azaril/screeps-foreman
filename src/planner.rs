@@ -321,8 +321,14 @@ pub type PlanState = HashMap<Location, RoomItem>;
 pub struct PlannerStateLayer {
     #[serde(rename = "d")]
     data: HashMap<Location, RoomItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PlannerStateCacheLayer {
     #[serde(rename = "s")]
     structure_counts: HashMap<StructureType, u8>,
+    #[serde(skip)]
+    data_cache: RefCell<HashMap<Location, Option<RoomItem>>>,
     #[serde(skip)]
     structure_distances: RefCell<HashMap<StructureType, (RoomDataArray<Option<u32>>, u32)>>,
 }
@@ -331,9 +337,7 @@ pub struct PlannerStateLayer {
 impl PlannerStateLayer {
     pub fn new() -> PlannerStateLayer {
         PlannerStateLayer {
-            data: HashMap::new(),
-            structure_counts: HashMap::new(),
-            structure_distances: RefCell::new(HashMap::new()),
+            data: HashMap::new()
         }
     }
 
@@ -341,38 +345,24 @@ impl PlannerStateLayer {
         self.data.is_empty()
     }
 
-    pub fn insert(&mut self, location: Location, item: RoomItem) {
-        if let Some(current) = self.data.insert(location, item) {
-            let old_count = self.structure_counts.entry(current.structure_type).or_insert(0);
-
-            *old_count -= 1;
-        }
-
-        let current_count = self.structure_counts.entry(item.structure_type).or_insert(0);
-
-        *current_count += 1;
-
-        self.structure_distances.borrow_mut().clear();
+    pub fn insert(&mut self, location: Location, item: RoomItem) -> Option<RoomItem> {
+        self.data.insert(location, item)
     }
-
     pub fn get(&self, location: &Location) -> Option<&RoomItem> {
         self.data.get(location)
     }
 
-    pub fn get_count(&self, structure_type: StructureType) -> u8 {
-        *self.structure_counts.get(&structure_type).unwrap_or(&0)
+    pub fn get_locations(&self, structure_type: StructureType) -> impl Iterator<Item = &Location> {
+        self.data
+            .iter()
+            .filter(move |(_, entry)| entry.structure_type == structure_type)
+            .map(|(location, _)| location)
     }
 
-    pub fn get_locations(&self, structure_type: StructureType) -> Vec<Location> {
-        if self.get_count(structure_type) > 0 {
-            self.data
-                .iter()
-                .filter(|(_, entry)| entry.structure_type == structure_type)
-                .map(|(location, _)| *location)
-                .collect()
-        } else {
-            Vec::new()
-        }
+    pub fn get_all_locations(&self) -> impl Iterator<Item = &Location> {
+        self.data
+            .iter()
+            .map(|(location, _)| location)
     }
 
     pub fn complete(self) -> HashMap<Location, RoomItem> {
@@ -381,6 +371,41 @@ impl PlannerStateLayer {
 
     pub fn visualize<T>(&self, visualizer: &mut T) where T: RoomVisualizer {
         visualize_room_items(&self.data, visualizer);
+    }
+}
+
+#[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
+impl PlannerStateCacheLayer {
+    pub fn new(structure_counts: HashMap<StructureType, u8>) -> PlannerStateCacheLayer {
+        PlannerStateCacheLayer {
+            structure_counts,
+            data_cache: RefCell::new(HashMap::new()),
+            structure_distances: RefCell::new(HashMap::new())
+        }
+    }
+
+    pub fn insert(&mut self, location: Location, item: RoomItem) {
+        let current_count = self.structure_counts.entry(item.structure_type).or_insert(0);
+
+        *current_count += 1;
+
+        self.structure_distances.borrow_mut().clear();
+
+        self.data_cache.borrow_mut().insert(location, Some(item));
+    }
+
+    pub fn remove(&mut self, location: Location, item: RoomItem) {
+        let current_count = self.structure_counts.entry(item.structure_type).or_insert(0);
+
+        *current_count -= 1;
+
+        self.structure_distances.borrow_mut().clear();
+
+        self.data_cache.borrow_mut().remove(&location);
+    }
+
+    pub fn get_count(&self, structure_type: StructureType) -> u8 {
+        *self.structure_counts.get(&structure_type).unwrap_or(&0)
     }
 
     pub fn with_structure_distances<G, F, R>(&self, structure_type: StructureType, generator: G, callback: F) -> R
@@ -399,45 +424,112 @@ impl PlannerStateLayer {
 pub struct PlannerState {
     #[serde(rename = "l")]
     layers: Vec<PlannerStateLayer>,
+    #[serde(rename = "c")]
+    cache_layers: Vec<PlannerStateCacheLayer>,
 }
 
-#[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl PlannerState {
     pub fn new() -> PlannerState {
         PlannerState {
             layers: vec![PlannerStateLayer::new()],
+            cache_layers: vec![PlannerStateCacheLayer::new(HashMap::new())]
         }
     }
 
     pub fn push_layer(&mut self) {
+        let counts = self.cache_layers.last().map(|cache_layer| cache_layer.structure_counts.clone()).unwrap_or_else(|| HashMap::new());
+        
         self.layers.push(PlannerStateLayer::new());
+        self.cache_layers.push(PlannerStateCacheLayer::new(counts));
     }
 
     fn pop_layer(&mut self) {
         self.layers.pop();
+        self.cache_layers.pop();
     }
 
-    pub fn get(&self, location: &Location) -> Option<&RoomItem> {
-        for layer in self.layers.iter().rev() {
-            let entry = layer.get(location);
+    pub fn get(&self, location: &Location) -> Option<RoomItem> {
+        let flush_index = self
+            .cache_layers
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_index, cache_layer)| cache_layer.data_cache.borrow().get(location).is_some())
+            .map(|(index, _)| index + 1)
+            .unwrap_or(0);
 
-            if entry.is_some() {
-                return entry;
-            }
+        for index in flush_index..self.cache_layers.len() {
+            let cache_layer = &self.cache_layers[index];
+            let layer = &self.layers[index];
+
+            let item = layer.get(location)
+                .cloned()
+                .or_else(|| {
+                    if index > 0 {
+                        self.cache_layers[index - 1].data_cache.borrow().get(location).and_then(|v| v.clone())
+                    } else {
+                        None
+                    }
+                });
+
+            cache_layer.data_cache.borrow_mut().insert(*location, item);
         }
 
-        None
+        self.cache_layers.last().and_then(|layer| layer.data_cache.borrow().get(location).and_then(|v| *v))
     }
 
     pub fn get_count(&self, structure_type: StructureType) -> u8 {
-        self.layers.iter().map(|l| l.get_count(structure_type)).sum()
+        self.cache_layers.last().map(|l| l.get_count(structure_type)).unwrap_or(0)
     }
 
     pub fn get_locations(&self, structure_type: StructureType) -> Vec<Location> {
-        self.layers.iter().flat_map(|l| l.get_locations(structure_type)).collect()
+        let locations = self
+            .layers
+            .iter()
+            .flat_map(|l| l.get_locations(structure_type))
+            .collect::<HashSet<_>>();
+
+        locations
+            .into_iter()
+            .filter(|location| self.get(location).is_some())
+            .map(|location| *location)
+            .collect()
     }
 
-    pub fn get_distance_to_structure(
+    pub fn get_all_locations(&self) -> Vec<Location> {
+        let locations = self
+            .layers
+            .iter()
+            .flat_map(|l| l.get_all_locations())
+            .collect::<HashSet<_>>();
+
+        locations
+            .into_iter()
+            .filter(|location| self.get(location).is_some())
+            .map(|location| *location)
+            .collect()
+    }
+
+    pub fn get_all(&self) -> Vec<(Location, RoomItem)> {
+        let locations = self
+            .layers
+            .iter()
+            .flat_map(|l| l.get_all_locations())
+            .collect::<HashSet<_>>();
+
+        locations
+            .into_iter()
+            .filter_map(|location| {
+                if let Some(item) = self.get(location) {
+                    Some((*location, item))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn get_pathfinding_distance_to_structure(
         &self,
         position: PlanLocation,
         structure_type: StructureType,
@@ -490,11 +582,38 @@ impl PlannerState {
             .map(|(_, cost)| cost)
     }
 
+    pub fn get_linear_distance_to_structure(
+        &self,
+        position: PlanLocation,
+        structure_type: StructureType,
+        range: u32
+    ) -> Option<u32> {
+        self.get_locations(structure_type)
+            .iter()
+            .map(|goal_location| {
+                let distance = position.distance_to(goal_location.into()) as u32;
+                
+                if distance >= range {
+                    distance - range
+                } else {
+                    0
+                }
+            })
+            .min()
+    }
+
     pub fn with_structure_distances<F, R>(&self, structure_type: StructureType, terrain: &FastRoomTerrain, callback: F) -> R
     where
         F: FnOnce(Option<(&RoomDataArray<Option<u32>>, u32)>) -> R,
     {
-        if let Some(top_non_empty) = self.layers.iter().rev().find(|l| !l.is_empty()) {
+        let layer = self
+            .layers
+            .iter()
+            .rev()
+            .zip(self.cache_layers.iter().rev())
+            .find(|(layer, _)| !layer.is_empty());
+
+        if let Some((_top_non_empty_layer, top_non_empty_cache_layer)) = layer {
             let generator = || {
                 let mut data: RoomDataArray<Option<u32>> = RoomDataArray::new(None);
                 let mut to_apply: HashSet<PlanLocation> = HashSet::new();
@@ -526,7 +645,7 @@ impl PlannerState {
                 (data, max_distance)
             };
 
-            top_non_empty.with_structure_distances(structure_type, generator, |(data, max_distance)| {
+            top_non_empty_cache_layer.with_structure_distances(structure_type, generator, |(data, max_distance)| {
                 callback(Some((data, max_distance)))
             })
         } else {
@@ -535,7 +654,16 @@ impl PlannerState {
     }
 
     pub fn insert(&mut self, location: Location, item: RoomItem) {
+        let old_value = self.get(&location);
+
+        let cache_layer = self.cache_layers.last_mut().unwrap();
         let layer = self.layers.last_mut().unwrap();
+
+        if let Some(old_value) = old_value {
+            cache_layer.remove(location, old_value)
+        }
+
+        cache_layer.insert(location, item);
 
         layer.insert(location, item);
     }
@@ -550,10 +678,6 @@ impl PlannerState {
         }
 
         state
-    }
-
-    pub fn get_all(&self) -> impl Iterator<Item = (&Location, &RoomItem)> {
-        self.layers.iter().flat_map(|l| l.data.iter())
     }
 
     pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
@@ -1335,6 +1459,8 @@ pub trait PlanGlobalPlacementNode: PlanGlobalNode {
 
     fn must_place(&self) -> bool;
 
+    fn get_maximum_score(&self, context: &mut NodeContext, state: &PlannerState) -> Option<f32>;
+
     fn get_score(&self, context: &mut NodeContext, state: &PlannerState) -> Option<f32>;
 
     fn place(&self, context: &mut NodeContext, state: &mut PlannerState);
@@ -1370,6 +1496,8 @@ pub trait PlanLocationPlacementNode: PlanLocationNode {
     fn id(&self) -> &uuid::Uuid;
 
     fn must_place(&self) -> bool;
+
+    fn get_maximum_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>;
 
     fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>;
 
@@ -1567,6 +1695,7 @@ pub struct FixedPlanNode<'a> {
     pub child: PlanNodeStorage<'a>,
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
     pub desires_location: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> bool,
+    pub maximum_scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
     pub scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
 }
 
@@ -1667,6 +1796,10 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
 
     fn must_place(&self) -> bool {
         self.must_place
+    }
+
+    fn get_maximum_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+        (self.maximum_scorer)(position, context, state)
     }
 
     fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
@@ -1990,8 +2123,7 @@ impl<'a> PlanGlobalExpansionNode for FixedLocationPlanNode<'a> {
 
 pub struct FloodFillPlanNodeLevel<'a> {
     pub offsets: &'a [(i8, i8)],
-    pub node: &'a dyn PlanLocationPlacementNode,
-    pub scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+    pub node: &'a dyn PlanLocationPlacementNode
 }
 
 pub struct FloodFillPlanNode<'a> {
@@ -2000,6 +2132,7 @@ pub struct FloodFillPlanNode<'a> {
     pub start_offsets: &'a [(i8, i8)],
     pub expansion_offsets: &'a [(i8, i8)],
     pub maximum_expansion: u32,
+    pub minimum_candidates: usize,
     pub levels: &'a [FloodFillPlanNodeLevel<'a>],
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
     pub scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
@@ -2087,6 +2220,10 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
         &self.id
     }
 
+    fn get_maximum_score(&self, _position: PlanLocation, _context: &mut NodeContext, _state: &PlannerState) -> Option<f32> {
+        None
+    }
+
     fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
         (self.scorer)(position, context, state)
     }
@@ -2100,12 +2237,10 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
 
         let mut candidates = Vec::new();
 
-        const MINIMUM_CANDIDATES: usize = 10;
-
         while current_expansion < self.maximum_expansion && !locations.is_empty() {
-            while current_expansion < self.maximum_expansion && !locations.is_empty() && candidates.len() < MINIMUM_CANDIDATES {
-                let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
-
+            let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
+            
+            while current_expansion < self.maximum_expansion && !locations.is_empty() && candidates.len() < self.minimum_candidates {
                 for root_location in locations.iter() {
                     if !visited_locations.contains(root_location) {
                         visited_locations.insert(*root_location);
@@ -2120,28 +2255,29 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
                             let mut next_lod_locations = Vec::new();
 
                             for lod_location in expanded_locations {
-                                let got_candidate = if current_gather_data.desires_placement(lod.node.as_base(), context, state)
-                                    && current_gather_data.desires_location(lod_location, lod.node.as_location(), context, state)
-                                {
-                                    if let Some(score) = lod.node.get_score(lod_location, context, state) {
-                                        candidates.push((lod_location, lod.node, score));
+                                if !current_gather_data.has_visited_location(lod_location, lod.node.as_location()) {
+                                    current_gather_data.mark_visited_location(lod_location, lod.node.as_location());
+
+                                    let got_candidate = if current_gather_data.desires_placement(lod.node.as_base(), context, state)
+                                        && current_gather_data.desires_location(lod_location, lod.node.as_location(), context, state) {
+                                        let max_score = lod.node.get_maximum_score(lod_location, context, state);
+
+                                        candidates.push((lod_location, lod.node, max_score));
 
                                         true
                                     } else {
                                         false
-                                    }
-                                } else {
-                                    false
-                                };
+                                    };
 
-                                if got_candidate {
-                                    for offset in self.expansion_offsets.into_iter() {
-                                        let next_location = *root_location + *offset;
+                                    if got_candidate {
+                                        for offset in self.expansion_offsets.into_iter() {
+                                            let next_location = *root_location + *offset;
 
-                                        next_locations.insert(next_location);
+                                            next_locations.insert(next_location);
+                                        }
+                                    } else {
+                                        next_lod_locations.push(lod_location);
                                     }
-                                } else {
-                                    next_lod_locations.push(lod_location);
                                 }
                             }
 
@@ -2159,21 +2295,47 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
                 locations = std::mem::replace(&mut next_locations, HashSet::new());
             }
 
-            candidates.sort_by(|(_, _, score_a), (_, _, score_b)| score_a.partial_cmp(score_b).unwrap());
+            candidates.sort_by(|(_, _, max_score_a), (_, _, max_score_b)| {
+                max_score_a.partial_cmp(&max_score_b).unwrap()
+            });
 
-            while candidates.len() >= MINIMUM_CANDIDATES || locations.is_empty() || current_expansion >= self.maximum_expansion {
-                if let Some((location, node, _)) = candidates.pop() {
-                    let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
+            while (candidates.len() >= self.minimum_candidates || locations.is_empty() || current_expansion >= self.maximum_expansion) && !candidates.is_empty() {
+                let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
 
-                    if current_gather_data.desires_placement(node.as_base(), context, state)
-                        && current_gather_data.desires_location(location, node.as_location(), context, state)
-                    {
-                        node.place(location, context, state);
+                let mut best_candidate = None;
+
+                let mut to_remove = Vec::new();
+
+                for (index, (location, node, max_score)) in candidates.iter().enumerate().rev() {
+                    let can_exceed_best_score = best_candidate
+                        .map(|(best_score, _)| best_score)
+                        .and_then(|best_score| max_score.map(|max| max > best_score))
+                        .unwrap_or(true);
+
+                    if can_exceed_best_score {
+                        let can_place = current_gather_data.desires_placement(node.as_base(), context, state) && 
+                            current_gather_data.desires_location(*location, node.as_location(), context, state);
+
+                        if can_place {
+                            if let Some(score) = node.get_score(*location, context, state) {
+                                if best_candidate.map(|(best_score, _)| score > best_score).unwrap_or(true) {
+                                    best_candidate = Some((score, (location, node)));
+                                }
+                            } else {
+                                to_remove.push(index);
+                            }
+                        } else {
+                            to_remove.push(index);
+                        }
                     }
+                }
 
-                //TODO: Evaluate LOD options?
-                } else {
-                    break;
+                if let Some((_, (location, node))) = best_candidate {
+                    node.place(*location, context, state);
+                }
+
+                for index in to_remove.into_iter() {
+                    candidates.remove(index);
                 }
             }
         }
@@ -2183,8 +2345,7 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
 pub struct FirstPossiblePlanNode<'a> {
     pub id: uuid::Uuid,
     pub must_place: bool,
-    pub options: &'a [&'a dyn PlanLocationPlacementNode],
-    pub scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+    pub options: &'a [&'a dyn PlanLocationPlacementNode]
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2255,8 +2416,27 @@ impl<'a> PlanLocationPlacementNode for FirstPossiblePlanNode<'a> {
         &self.id
     }
 
+    fn get_maximum_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+        self.options
+            .iter()
+            .filter_map(|option| option.get_maximum_score(position, context, state))
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+    }
+
     fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
-        (self.scorer)(position, context, state)
+        let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
+
+        self.options
+            .iter()
+            .filter_map(|option| {
+                if current_gather_data.desires_placement(option.as_base(), context, state)
+                    && current_gather_data.desires_location(position, option.as_location(), context, state) {
+                    option.get_score(position, context, state)
+                } else {
+                    None
+                }
+            })
+            .next()
     }
 
     fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) {
