@@ -2194,6 +2194,7 @@ pub struct MinCutWallsPlanNode {
     pub placement_phase: PlacementPhase,
     pub must_place: bool,
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
+    pub rcl_override: Option<u8>
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2463,15 +2464,15 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
                 continue;
             }
 
-            let rcl = state.get_rcl_for_next_structure(StructureType::Rampart).unwrap();
-
-            state.insert(
-                location,
-                RoomItem {
-                    structure_type: StructureType::Rampart,
-                    required_rcl: rcl,
-                }
-            );
+            if let Some(rcl) = self.rcl_override.or_else(|| state.get_rcl_for_next_structure(StructureType::Rampart)) {
+                state.insert(
+                    location,
+                    RoomItem {
+                        structure_type: StructureType::Rampart,
+                        required_rcl: rcl,
+                    }
+                );
+            }
         }
 
         /*

@@ -102,6 +102,16 @@ impl RoomVisualizer for RoomVisual {
                     Some(CircleStyle::default().fill("Brown").opacity(1.0)),
                 );
             }
+            StructureType::Rampart => {
+                RoomVisual::rect(
+                    self,
+                    location.x() as f32,
+                    location.y() as f32,
+                    1.0,
+                    1.0,
+                    Some(RectStyle::default().fill("Green").opacity(0.3)),
+                );
+            }
             _ => {
                 RoomVisual::circle(
                     self,

@@ -371,6 +371,7 @@ const RAMPARTS_NODE: &MinCutWallsPlanNode = &MinCutWallsPlanNode {
     placement_phase: PlacementPhase::Post,
     must_place: false,
     desires_placement: |_, _| true,
+    rcl_override: Some(4)
 };
 
 const RAMPARTS: PlanNodeStorage = PlanNodeStorage::GlobalPlacement(RAMPARTS_NODE);
