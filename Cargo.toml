@@ -18,6 +18,7 @@ itertools = "0.8"
 bitflags = "1.2.1"
 uuid = { version = "0.8", features = ["serde"] }
 pathfinding = { version = "2.0" }
+rs-graph = "0.19"
 screeps-game-api = { version = "0.7", optional = true }
 screeps-cache = { git = "https://github.com/Azaril/screeps-cache" }
 screeps-timing = { git = "https://github.com/Azaril/screeps-timing", optional = true }

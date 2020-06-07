@@ -23,6 +23,10 @@ fn has_mandatory_buildings(state: &PlannerState, context: &mut NodeContext) -> b
         && (state.get_count(StructureType::Extractor) as usize) == context.minerals().len()
 }
 
+fn has_ramparts(state: &PlannerState, _context: &mut NodeContext) -> bool {
+    state.get_count(StructureType::Rampart) >= 1
+}
+
 fn has_source_containers(state: &PlannerState, context: &mut NodeContext) -> bool {
     let mut source_locations = context.sources().to_vec();
     let mut container_locations = state.get_locations(StructureType::Container);
@@ -51,6 +55,8 @@ fn has_source_links(state: &PlannerState, context: &mut NodeContext) -> bool {
     let link_locations = state.get_locations(StructureType::Link);
     let container_locations = state.get_locations(StructureType::Container);
 
+    //TODO: This currently validates that there is a link for sources at least 8 distance from storage - that is not currently
+    //      possible with the layout due to 'must place flag'.
     let matching_containers = state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
         if let Some((storage_distances, _max_distance)) = storage_distances {
             container_locations
@@ -261,25 +267,42 @@ fn source_distance_balance_score(state: &PlannerState, context: &mut NodeContext
     scores
 }
 
-fn extension_distance_score(state: &PlannerState, _context: &mut NodeContext) -> Vec<StateScore> {
-    let storage_locations = state.get_locations(StructureType::Storage);
+fn extension_distance_score(state: &PlannerState, context: &mut NodeContext) -> Vec<StateScore> {
     let extension_locations = state.get_locations(StructureType::Extension);
 
-    //TODO: Use storage distance flood fill for accurate extension distance.
-
-    let total_extension_distance: f32 = extension_locations
-        .iter()
-        .map(|extension| {
-            storage_locations
+    let total_distance = state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
+        if let Some((storage_distances, max_distance)) = storage_distances {
+            let total_distance = extension_locations
                 .iter()
-                .map(|storage| storage.distance_to(*extension))
-                .min()
-                .unwrap() as f32
-        })
-        .sum();
+                .filter_map(|extension_location| {
+                    let extension_location: PlanLocation = extension_location.into();
+
+                    ONE_OFFSET_SQUARE
+                        .iter()
+                        .filter_map(|offset| {
+                            let offset_location = extension_location + offset;
+
+                            if offset_location.in_room_bounds() {
+                                *storage_distances.get(offset_location.x() as usize, offset_location.y() as usize)
+                            } else {
+                                None
+                            }
+                        })
+                        .min_by_key(|distance| *distance)
+                        .map(|distance| distance as f32)
+                })
+                .sum::<f32>();
+
+            Some((total_distance, max_distance as f32))
+        } else {
+            None
+        }
+    });
+
+    let (total_extension_distance, max_distance) = total_distance.unwrap_or((f32::INFINITY, f32::INFINITY));
 
     let average_distance = total_extension_distance / (extension_locations.len() as f32);
-    let average_distance_score = 1.0 - (average_distance / ROOM_WIDTH.max(ROOM_HEIGHT) as f32);
+    let average_distance_score = 1.0 - average_distance / max_distance;
 
     vec![StateScore {
         score: average_distance_score,
@@ -300,6 +323,7 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
     //
 
     let validators = [
+        has_ramparts,
         has_mandatory_buildings,
         has_source_containers,
         has_mineral_extractors,
@@ -318,9 +342,14 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
         Scoring needed:
         - Mineral to storage length.
         - Controller to storage length.
+        - Upkeep cost (ramparts, tunnels, containers)
     */
 
-    let scorers = [source_distance_score, source_distance_balance_score, extension_distance_score];
+    let scorers = [
+        source_distance_score, 
+        source_distance_balance_score, 
+        extension_distance_score
+    ];
 
     let weights: Vec<_> = scorers.iter().flat_map(|scorer| (scorer)(state, context)).collect();
 

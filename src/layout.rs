@@ -51,6 +51,7 @@ fn distance_to_storage_score_flood_fill(position: PlanLocation, context: &mut No
 
 const LABS: &FixedPlanNode = &FixedPlanNode {
     id: uuid::Uuid::from_u128(0xd2d0_407f_9f30_4f98_9f40_8d1d_4c05_5981u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: false,
     placements: &[
         placement(StructureType::Lab, 1, 2),
@@ -77,6 +78,7 @@ const LABS: &FixedPlanNode = &FixedPlanNode {
 
 const EXTENSION_CROSS: &FixedPlanNode = &FixedPlanNode {
     id: uuid::Uuid::from_u128(0x68fd_8e22_e7b9_46f4_b798_5efa_0924_8095u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: false,
     placements: &[
         placement(StructureType::Extension, 0, 0),
@@ -102,13 +104,14 @@ const EXTENSION_CROSS: &FixedPlanNode = &FixedPlanNode {
 
 const EXTENSION: &FixedPlanNode = &FixedPlanNode {
     id: uuid::Uuid::from_u128(0x7405_b6a1_f235_4f7a_b20e_c283_d19b_3e88u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: false,
     placements: &[
         placement(StructureType::Extension, 0, 0),
-        placement(StructureType::Road, -1, -0),
-        placement(StructureType::Road, 0, 1),
-        placement(StructureType::Road, 1, 0),
-        placement(StructureType::Road, 0, -1),
+        optional_placement(StructureType::Road, -1, -0),
+        optional_placement(StructureType::Road, 0, 1),
+        optional_placement(StructureType::Road, 1, 0),
+        optional_placement(StructureType::Road, 0, -1),
     ],
     child: PlanNodeStorage::Empty,
     desires_placement: |_, state| state.get_count(StructureType::Extension) < 60 && state.get_count(StructureType::Storage) > 0,
@@ -119,6 +122,7 @@ const EXTENSION: &FixedPlanNode = &FixedPlanNode {
 
 const UTILITY_CROSS: &FixedPlanNode = &FixedPlanNode {
     id: uuid::Uuid::from_u128(0x03e1_1bc4_e469_44b0_80dc_1b88_88c2_616eu128),
+    placement_phase: PlacementPhase::Normal,
     must_place: false,
     placements: &[
         placement(StructureType::Observer, 0, 0),
@@ -149,6 +153,7 @@ const UTILITY_CROSS: &FixedPlanNode = &FixedPlanNode {
 
 const CONTROLLER_LINK: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0xc551_f09c_70d8_4148_a6a0_23af_6d95_e1bcu128),
+    placement_phase: PlacementPhase::Normal,
     must_place: true,
     placements: &[placement(StructureType::Link, 0, 0)],
     child: PlanNodeStorage::Empty,
@@ -172,6 +177,7 @@ const CONTROLLER_LINK: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&Fix
 
 const CONTROLLER_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0x865a_77b5_df18_418f_826f_e3d4_e934_4bd6u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: true,
     placements: &[placement(StructureType::Container, 0, 0)],
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
@@ -214,6 +220,7 @@ const CONTROLLERS: PlanNodeStorage = PlanNodeStorage::GlobalExpansion(&FixedLoca
 
 const SOURCE_LINK: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0x319d_c67c_8230_4905_afc3_e9c8_196c_2bd3u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: true,
     placements: &[placement(StructureType::Link, 0, 0)],
     child: PlanNodeStorage::Empty,
@@ -237,6 +244,7 @@ const SOURCE_LINK: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
 
 const SOURCE_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0xe2ba_7996_11a2_47d8_bb3d_57cc_2ade_bbf2u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: true,
     placements: &[placement(StructureType::Container, 0, 0)],
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
@@ -299,6 +307,7 @@ const SOURCES: PlanNodeStorage = PlanNodeStorage::GlobalExpansion(&FixedLocation
 
 const EXTRACTOR_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0x414d_d6b4_93f8_4539_81c5_89b5_1311_2a4fu128),
+    placement_phase: PlacementPhase::Normal,
     must_place: true,
     placements: &[placement(StructureType::Container, 0, 0)],
     child: PlanNodeStorage::Empty,
@@ -333,6 +342,7 @@ const EXTRACTOR_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(
 
 const EXTRACTOR: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0x3726_8895_d11a_4aa4_9898_12a9_efc8_b968u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: true,
     placements: &[placement(StructureType::Extractor, 0, 0)],
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
@@ -356,12 +366,22 @@ const MINERALS_NODE: &FixedLocationPlanNode = &FixedLocationPlanNode {
 
 const MINERALS: PlanNodeStorage = PlanNodeStorage::GlobalExpansion(MINERALS_NODE);
 
+const RAMPARTS_NODE: &MinCutWallsPlanNode = &MinCutWallsPlanNode {
+    id: uuid::Uuid::from_u128(0xb47c_cf90_44eb_4e7d_8d13_4c4e_f27b_264du128),
+    placement_phase: PlacementPhase::Post,
+    must_place: false,
+    desires_placement: |_, _| true,
+};
+
+const RAMPARTS: PlanNodeStorage = PlanNodeStorage::GlobalPlacement(RAMPARTS_NODE);
+
 const POST_BUNKER_NODES: PlanNodeStorage = PlanNodeStorage::LocationExpansion(&MultiPlacementExpansionNode {
     children: &[CONTROLLERS, SOURCES, MINERALS],
 });
 
 const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0x1533_4930_d790_4a49_b1e0_1e30_acc4_eb46u128),
+    placement_phase: PlacementPhase::Normal,
     must_place: false,
     placements: &[
         placement(StructureType::Spawn, -2, 0),
@@ -409,6 +429,7 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
             }),
             PlanNodeStorage::LocationPlacement(&FloodFillPlanNode {
                 id: uuid::Uuid::from_u128(0xeff2_1b89_0149_4bc9_b4f4_8138_5cd6_5232u128),
+                placement_phase: PlacementPhase::Normal,
                 must_place: false,
                 start_offsets: &[
                     (-3, -3),
@@ -417,19 +438,16 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
                     (3, 3),
                     (5, 1),
                     (1, 5),
-                    (4, -3),
-                    (2, -5),
-                    (-3, 5),
-                    (-5, 3),
                 ],
                 expansion_offsets: &[(-4, 0), (-2, 2), (0, 4), (2, 2), (4, 0), (2, -2), (0, -4), (-2, -2)],
                 maximum_expansion: 20,
-                minimum_candidates: 1,
+                minimum_candidates: 10,
                 levels: &[
                     FloodFillPlanNodeLevel {
                         offsets: &[(0, 0)],
                         node: &FirstPossiblePlanNode {
                             id: uuid::Uuid::from_u128(0x6172_a491_955b_4029_b835_bd54_3c15_5e14u128),
+                            placement_phase: PlacementPhase::Normal,
                             must_place: true,
                             options: &[UTILITY_CROSS, EXTENSION_CROSS]
                         },
@@ -442,6 +460,7 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
                 desires_placement: |_, _| true,
                 scorer: |_, _, _| Some(0.5),
             }),
+            RAMPARTS
         ],
     }),
     desires_placement: |_, state| state.get_count(StructureType::Spawn) == 0,
