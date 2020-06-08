@@ -2262,8 +2262,6 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
     }
 
     fn place(&self, context: &mut NodeContext, state: &mut PlannerState) {
-        // rampart min cut using rs-graph's dinic
-        // making a big network - there will be a top and bottom node added for each tile in the room plus two more, the source and sink
         let mut builder = <rs_graph::linkedlistgraph::LinkedListGraph::<u32> as Buildable>::Builder::with_capacities(2* 50 * 50 + 2, 2* 50 * 50 + 2);
         
         let top_nodes = builder.add_nodes(50 * 50);
@@ -2440,18 +2438,7 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
             } else if room_node_count < room_node_count * 2 {
                 bot_cut.insert(node_id - room_node_count);
             }
-
-            // debug display
-            //let check_x = i as u32 % 50;
-            //let check_y = i as u32 / 50;
-            //RoomVisual::new(Some(room_name)).circle(check_x as f32, check_y as f32, Some(CircleStyle::default().radius(0.5).fill("#e8e863").opacity(0.3)));
-            // js! {
-            //     new RoomVisual(@{room_name}).circle(@{check_x as u32},@{check_y as u32},{radius: 0.5, fill:"#e8e863",opacity: 0.3});
-            // }
         }
-
-        //let mut count = 0;
-        //let mut rampart_positions = HashSet::new();
 
         let terrain = context.terrain();
 
@@ -2474,52 +2461,6 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
                 );
             }
         }
-
-        /*
-        for top_node_id in top_cut {
-            if !bot_cut.contains(&top_node_id) {
-                // this node's top was cut from the bottom - if it's walkable, plan a rampart!
-                let check_x = top_node_id as u32 % 50;
-                let check_y = top_node_id as u32 / 50;
-                
-                match terrain.get(check_x, check_y) {
-                    Terrain::Wall => {}
-                    _ => {
-                        let position =
-                            Position::new(check_x as u32, check_y as u32, room.name());
-                        blueprint
-                            .structures
-                            .entry(StructureType::Rampart)
-                            .or_insert(HashMap::new())
-                            .entry(position)
-                            .or_insert(PlannedStructure {
-                                position: position,
-                                structure_type: StructureType::Rampart,
-                                build_rcl: 3,
-                                build_priority: 2,
-                                structure_role: None,
-                                structure_room: room_hashset.clone(),
-                            });
-                        //count += 1;
-                        blueprint
-                            .structures
-                            .entry(StructureType::Road)
-                            .or_insert(HashMap::new())
-                            .entry(position)
-                            .or_insert(PlannedStructure {
-                                position: position,
-                                structure_type: StructureType::Road,
-                                build_rcl: 6,
-                                build_priority: 0,
-                                structure_role: None,
-                                structure_room: room_hashset.clone(),
-                            });
-                        rampart_positions.insert(position);
-                    }
-                }
-            }
-        }
-        */
     }
 }
 
