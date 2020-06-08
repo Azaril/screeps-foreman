@@ -687,7 +687,9 @@ impl PlannerState {
 
         for layer in &self.layers {
             for (location, item) in layer.data.iter() {
-                state.insert(*location, item.to_owned());
+                state.entry(*location)
+                    .and_modify(|entries| entries.extend(item.iter()))
+                    .or_insert_with(|| item.to_owned());
             }
         }
 
@@ -1737,6 +1739,10 @@ impl PlanPlacement {
                 if existing.structure_type != StructureType::Road || self.structure_type != StructureType::Road {
                     return false;
                 }
+
+                if existing.structure_type != StructureType::Rampart || self.structure_type != StructureType::Rampart {
+                    return false;
+                }
             }
         } else {
             return false;
@@ -1869,7 +1875,7 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
         for placement in self.placements.iter().filter(|p| p.structure_type != StructureType::Road) {
             let placement_location = (position + placement.offset).as_location().unwrap();
 
-            if !placement.optional || placement.can_place(placement_location.into(), context, state) {
+            if placement.can_place(placement_location.into(), context, state) {
                 let rcl = state.get_rcl_for_next_structure(placement.structure_type).unwrap();
                 
                 min_rcl = min_rcl.map(|r| if rcl < r { rcl } else { r }).or(Some(rcl));
@@ -1889,20 +1895,7 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
         for placement in self.placements.iter().filter(|p| p.structure_type == StructureType::Road) {
             let placement_location = (position + placement.offset).as_location().unwrap();
 
-            let should_skip = state.get(&placement_location).iter().flat_map(|v| v.iter()).any(|other_placement| {
-                //TODO: Should this check for combinations that are valid?
-                if placement.optional {
-                    return true;
-                }
-
-                if other_placement.structure_type == StructureType::Road && other_placement.required_rcl < road_rcl {
-                    return true;
-                }
-
-                false
-            });
-
-            if !should_skip {
+            if placement.can_place(placement_location.into(), context, state) {
                 state.insert(
                     placement_location,
                     RoomItem {
@@ -3203,7 +3196,10 @@ where
                     let mut to_place = Vec::new();
 
                     while !entry.children.is_empty() {
-                        if entry.children.last().unwrap().must_place() {
+                        let current_phase = to_place.last().map(|c: &PlanNodeChild| c.placement_phase());
+                        let matches_phase = current_phase.map(|phase| phase == entry.children.last().unwrap().placement_phase()).unwrap_or(true);
+
+                        if entry.children.last().unwrap().must_place() && matches_phase {
                             to_place.push(entry.children.pop().unwrap());
                         } else if to_place.is_empty() {
                             to_place.push(entry.children.pop().unwrap());

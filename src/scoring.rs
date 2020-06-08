@@ -279,7 +279,7 @@ fn source_distance_score(state: &PlannerState, context: &mut NodeContext) -> Vec
 
         scores.push(StateScore {
             score: source_score,
-            weight: 3.0,
+            weight: 2.0,
         })
     }
 
@@ -318,7 +318,7 @@ fn source_distance_balance_score(state: &PlannerState, context: &mut NodeContext
 
         scores.push(StateScore {
             score: source_delta_score,
-            weight: 1.0,
+            weight: 0.5,
         })
     }
 
@@ -413,7 +413,7 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
 
     let weights: Vec<_> = scorers.iter().flat_map(|scorer| (scorer)(state, context)).collect();
 
-    let total_score: f32 = weights.iter().map(|s| s.score).sum();
+    let total_score: f32 = weights.iter().map(|s| s.score * s.weight).sum();
     let total_weight: f32 = weights.iter().map(|s| s.weight).sum();
 
     if total_weight > 0.0 {
