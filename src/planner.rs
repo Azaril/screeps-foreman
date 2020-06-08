@@ -1736,11 +1736,13 @@ impl PlanPlacement {
             }
 
             for existing in state.get(&placement_location).iter().flat_map(|v| v.iter()) {
-                if existing.structure_type != StructureType::Road || self.structure_type != StructureType::Road {
-                    return false;
-                }
+                let valid = match existing.structure_type {
+                    StructureType::Road => self.structure_type == StructureType::Road,
+                    StructureType::Rampart => true,
+                    _ => self.structure_type == StructureType::Rampart,
+                };
 
-                if existing.structure_type != StructureType::Rampart || self.structure_type != StructureType::Rampart {
+                if !valid {
                     return false;
                 }
             }
@@ -1875,7 +1877,7 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
         for placement in self.placements.iter().filter(|p| p.structure_type != StructureType::Road) {
             let placement_location = (position + placement.offset).as_location().unwrap();
 
-            if placement.can_place(placement_location.into(), context, state) {
+            if !placement.optional || placement.can_place(placement_location.into(), context, state) {
                 let rcl = state.get_rcl_for_next_structure(placement.structure_type).unwrap();
                 
                 min_rcl = min_rcl.map(|r| if rcl < r { rcl } else { r }).or(Some(rcl));
@@ -1895,7 +1897,7 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
         for placement in self.placements.iter().filter(|p| p.structure_type == StructureType::Road) {
             let placement_location = (position + placement.offset).as_location().unwrap();
 
-            if placement.can_place(placement_location.into(), context, state) {
+            if !placement.optional || placement.can_place(placement_location.into(), context, state) {
                 state.insert(
                     placement_location,
                     RoomItem {
