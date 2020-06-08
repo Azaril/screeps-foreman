@@ -121,6 +121,64 @@ fn has_mineral_containers(state: &PlannerState, _context: &mut NodeContext) -> b
     extractor_locations.is_empty()
 }
 
+fn has_controller_containers(state: &PlannerState, context: &mut NodeContext) -> bool {
+    let mut controller_locations = context.controllers().to_vec();
+    let mut container_locations = state.get_locations(StructureType::Container);
+
+    let mut matched_controllers = Vec::new();
+
+    for (controller_index, controller_location) in controller_locations.iter().enumerate() {
+        if let Some(index) = container_locations
+            .iter()
+            .position(|container_location| controller_location.distance_to(container_location.into()) <= 1)
+        {
+            container_locations.remove(index);
+            matched_controllers.push(controller_index)
+        }
+    }
+
+    for index in matched_controllers.iter().rev() {
+        controller_locations.remove(*index);
+    }
+
+    controller_locations.is_empty()
+}
+
+fn has_controller_links(state: &PlannerState, context: &mut NodeContext) -> bool {
+    let controller_locations = context.controllers().to_vec();
+    let link_locations = state.get_locations(StructureType::Link);
+    let container_locations = state.get_locations(StructureType::Container);
+
+    //TODO: This currently validates that there is a link for controllers at least 8 distance from storage - that is not currently
+    //      possible with the layout due to 'must place flag'.
+    let matching_containers = state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
+        if let Some((storage_distances, _max_distance)) = storage_distances {
+            container_locations
+                .iter()
+                .filter(|&container_location| {
+                    controller_locations
+                        .iter()
+                        .any(|source_location| source_location.distance_to(container_location.into()) <= 1)
+                })
+                .filter(|&container_location| {
+                    storage_distances
+                        .get(container_location.x() as usize, container_location.y() as usize)
+                        .map(|d| d >= 8)
+                        .unwrap_or(false)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    });
+
+    !matching_containers.iter().any(|&container_location| {
+        !link_locations
+            .iter()
+            .any(|link_location| link_location.distance_to(*container_location) <= 1)
+    })
+}
+
 fn has_reachable_structures(state: &PlannerState, context: &mut NodeContext) -> bool {
     let placements: Vec<_> = state.get_all();
 
@@ -325,9 +383,11 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
     let validators = [
         has_ramparts,
         has_mandatory_buildings,
-        has_source_containers,
         has_mineral_extractors,
+        has_source_containers,
+        has_controller_containers,        
         has_mineral_containers,
+        has_controller_links,
         has_source_links,
         has_reachable_structures,
         has_reachable_sources,

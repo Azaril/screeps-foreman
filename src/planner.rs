@@ -3199,7 +3199,7 @@ where
                 let entry = stack.last_mut().unwrap();
                 let mut entry_failed = false;
 
-                while !entry.children.is_empty() && placed_nodes.is_empty() {
+                while !entry.children.is_empty() && placed_nodes.is_empty() && !entry_failed && should_continue() {
                     let mut to_place = Vec::new();
 
                     while !entry.children.is_empty() {
@@ -3237,10 +3237,6 @@ where
                         (self.handler)(state, &mut context);
                     } else {
                         state.pop_layer();
-                    }
-
-                    if entry_failed || !should_continue() {
-                        break;
                     }
                 }
 
