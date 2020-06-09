@@ -318,7 +318,7 @@ fn source_distance_balance_score(state: &PlannerState, context: &mut NodeContext
 
         scores.push(StateScore {
             score: source_delta_score,
-            weight: 0.5,
+            weight: 0.25,
         })
     }
 
