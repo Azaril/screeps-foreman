@@ -1,18 +1,27 @@
 #![allow(dead_code)]
+use super::location::*;
+use super::visual::*;
+use super::*;
+use crate::constants::*;
 use bitflags::*;
 use log::*;
 use pathfinding::directed::astar::*;
-use super::location::*;
 use serde::*;
 use std::cell::RefCell;
 use std::collections::hash_map::*;
 use std::collections::*;
 use std::convert::*;
-use crate::constants::*;
-use super::*;
-use super::visual::*;
 
-pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[(-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1)];
+pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+    (1, 0),
+    (1, -1),
+    (0, -1),
+];
 pub const TWO_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-2, -2),
     (-2, -1),
@@ -33,7 +42,16 @@ pub const TWO_OFFSET_SQUARE: &[(i8, i8)] = &[
 ];
 
 pub const ONE_OFFSET_DIAMOND: &[(i8, i8)] = &[(-1, 0), (0, 1), (1, 0), (0, -1)];
-pub const TWO_OFFSET_DIAMOND: &[(i8, i8)] = &[(0, -2), (-1, -1), (-2, 0), (-1, 1), (0, 2), (1, 1), (2, 0), (1, -1)];
+pub const TWO_OFFSET_DIAMOND: &[(i8, i8)] = &[
+    (0, -2),
+    (-1, -1),
+    (-2, 0),
+    (-1, 1),
+    (0, 2),
+    (1, 1),
+    (2, 0),
+    (1, -1),
+];
 pub const TWO_OFFSET_DIAMOND_POINTS: &[(i8, i8)] = &[(0, -2), (-2, 0), (0, 2), (2, 0)];
 
 pub fn in_room_bounds<T>(x: T, y: T) -> bool
@@ -337,7 +355,7 @@ pub struct PlannerStateCacheLayer {
 impl PlannerStateLayer {
     pub fn new() -> PlannerStateLayer {
         PlannerStateLayer {
-            data: HashMap::new()
+            data: HashMap::new(),
         }
     }
 
@@ -358,22 +376,28 @@ impl PlannerStateLayer {
     pub fn get_locations(&self, structure_type: StructureType) -> impl Iterator<Item = &Location> {
         self.data
             .iter()
-            .filter(move |(_, entries)| entries.iter().any(|entry| entry.structure_type == structure_type))
+            .filter(move |(_, entries)| {
+                entries
+                    .iter()
+                    .any(|entry| entry.structure_type == structure_type)
+            })
             .map(|(location, _)| location)
     }
 
     pub fn get_all_locations(&self) -> impl Iterator<Item = &Location> {
-        self.data
-            .iter()
-            .map(|(location, _)| location)
+        self.data.iter().map(|(location, _)| location)
     }
 
     pub fn complete(self) -> HashMap<Location, Vec<RoomItem>> {
         self.data
     }
 
-    pub fn visualize<T>(&self, visualizer: &mut T) where T: RoomVisualizer {
-        let items = self.data
+    pub fn visualize<T>(&self, visualizer: &mut T)
+    where
+        T: RoomVisualizer,
+    {
+        let items = self
+            .data
             .iter()
             .flat_map(|(location, entries)| entries.iter().map(move |entry| (location, entry)));
 
@@ -387,18 +411,26 @@ impl PlannerStateCacheLayer {
         PlannerStateCacheLayer {
             structure_counts,
             data_cache: RefCell::new(HashMap::new()),
-            structure_distances: RefCell::new(HashMap::new())
+            structure_distances: RefCell::new(HashMap::new()),
         }
     }
 
     pub fn insert(&mut self, location: Location, item: RoomItem) {
-        let current_count = self.structure_counts.entry(item.structure_type).or_insert(0);
+        let current_count = self
+            .structure_counts
+            .entry(item.structure_type)
+            .or_insert(0);
 
         *current_count += 1;
 
         self.structure_distances.borrow_mut().clear();
 
-        if let Some(entries) = self.data_cache.borrow_mut().get_mut(&location).and_then(|v| v.as_mut()) {
+        if let Some(entries) = self
+            .data_cache
+            .borrow_mut()
+            .get_mut(&location)
+            .and_then(|v| v.as_mut())
+        {
             entries.push(item);
         }
     }
@@ -407,13 +439,20 @@ impl PlannerStateCacheLayer {
         *self.structure_counts.get(&structure_type).unwrap_or(&0)
     }
 
-    pub fn with_structure_distances<G, F, R>(&self, structure_type: StructureType, generator: G, callback: F) -> R
+    pub fn with_structure_distances<G, F, R>(
+        &self,
+        structure_type: StructureType,
+        generator: G,
+        callback: F,
+    ) -> R
     where
         F: FnOnce((&RoomDataArray<Option<u32>>, u32)) -> R,
         G: FnOnce() -> (RoomDataArray<Option<u32>>, u32),
     {
         let mut structure_data = self.structure_distances.borrow_mut();
-        let (data, max_distance) = structure_data.entry(structure_type).or_insert_with(generator);
+        let (data, max_distance) = structure_data
+            .entry(structure_type)
+            .or_insert_with(generator);
 
         callback((data, *max_distance))
     }
@@ -431,13 +470,17 @@ impl PlannerState {
     pub fn new() -> PlannerState {
         PlannerState {
             layers: vec![PlannerStateLayer::new()],
-            cache_layers: vec![PlannerStateCacheLayer::new(HashMap::new())]
+            cache_layers: vec![PlannerStateCacheLayer::new(HashMap::new())],
         }
     }
 
     pub fn push_layer(&mut self) {
-        let counts = self.cache_layers.last().map(|cache_layer| cache_layer.structure_counts.clone()).unwrap_or_else(|| HashMap::new());
-        
+        let counts = self
+            .cache_layers
+            .last()
+            .map(|cache_layer| cache_layer.structure_counts.clone())
+            .unwrap_or_else(|| HashMap::new());
+
         self.layers.push(PlannerStateLayer::new());
         self.cache_layers.push(PlannerStateCacheLayer::new(counts));
     }
@@ -461,13 +504,13 @@ impl PlannerState {
             let cache_layer = &self.cache_layers[index];
             let layer = &self.layers[index];
 
-            let mut items = layer.get(location)
+            let mut items = layer
+                .get(location)
                 .map(|entry| entry.to_owned())
                 .unwrap_or_else(Vec::new);
 
             if index > 0 {
-                self
-                    .cache_layers[index - 1]
+                self.cache_layers[index - 1]
                     .data_cache
                     .borrow()
                     .get(location)
@@ -475,23 +518,26 @@ impl PlannerState {
                     .map(|v| items.extend(v.iter()));
             }
 
-            cache_layer.data_cache.borrow_mut().insert(*location, Some(items));
+            cache_layer
+                .data_cache
+                .borrow_mut()
+                .insert(*location, Some(items));
         }
 
-        self
-            .cache_layers
-            .last()
-            .and_then(|layer| {
-                layer
-                    .data_cache
-                    .borrow()
-                    .get(location)
-                    .and_then(|v| v.to_owned())
-            })
+        self.cache_layers.last().and_then(|layer| {
+            layer
+                .data_cache
+                .borrow()
+                .get(location)
+                .and_then(|v| v.to_owned())
+        })
     }
 
     pub fn get_count(&self, structure_type: StructureType) -> u8 {
-        self.cache_layers.last().map(|l| l.get_count(structure_type)).unwrap_or(0)
+        self.cache_layers
+            .last()
+            .map(|l| l.get_count(structure_type))
+            .unwrap_or(0)
     }
 
     pub fn get_locations(&self, structure_type: StructureType) -> Vec<Location> {
@@ -555,16 +601,15 @@ impl PlannerState {
                     return false;
                 }
 
-                let blocked = self.get(&location)
+                let blocked = self
+                    .get(&location)
                     .iter()
                     .flat_map(|v| v.iter())
-                    .any(|item| {
-                        match item.structure_type {
-                            StructureType::Road => false,
-                            StructureType::Container => false,
-                            StructureType::Rampart => false,
-                            _ => true,
-                        }
+                    .any(|item| match item.structure_type {
+                        StructureType::Road => false,
+                        StructureType::Container => false,
+                        StructureType::Rampart => false,
+                        _ => true,
                     });
 
                 !blocked
@@ -603,13 +648,13 @@ impl PlannerState {
         &self,
         position: PlanLocation,
         structure_type: StructureType,
-        range: u32
+        range: u32,
     ) -> Option<u32> {
         self.get_locations(structure_type)
             .iter()
             .map(|goal_location| {
                 let distance = position.distance_to(goal_location.into()) as u32;
-                
+
                 if distance >= range {
                     distance - range
                 } else {
@@ -619,7 +664,12 @@ impl PlannerState {
             .min()
     }
 
-    pub fn with_structure_distances<F, R>(&self, structure_type: StructureType, terrain: &FastRoomTerrain, callback: F) -> R
+    pub fn with_structure_distances<F, R>(
+        &self,
+        structure_type: StructureType,
+        terrain: &FastRoomTerrain,
+        callback: F,
+    ) -> R
     where
         F: FnOnce(Option<(&RoomDataArray<Option<u32>>, u32)>) -> R,
     {
@@ -643,17 +693,14 @@ impl PlannerState {
 
                 let is_passable = |location: PlanLocation| {
                     if let Ok(location) = Location::try_from(location) {
-                        let blocked = self.get(&location)
-                            .iter()
-                            .flat_map(|v| v.iter())
-                            .any(|item| {
-                                match item.structure_type {
-                                    StructureType::Road => false,
-                                    StructureType::Container => false,
-                                    StructureType::Rampart => false,
-                                    _ => true,
-                                }
-                            });
+                        let blocked = self.get(&location).iter().flat_map(|v| v.iter()).any(
+                            |item| match item.structure_type {
+                                StructureType::Road => false,
+                                StructureType::Container => false,
+                                StructureType::Rampart => false,
+                                _ => true,
+                            },
+                        );
 
                         !blocked
                     } else {
@@ -666,9 +713,11 @@ impl PlannerState {
                 (data, max_distance)
             };
 
-            top_non_empty_cache_layer.with_structure_distances(structure_type, generator, |(data, max_distance)| {
-                callback(Some((data, max_distance)))
-            })
+            top_non_empty_cache_layer.with_structure_distances(
+                structure_type,
+                generator,
+                |(data, max_distance)| callback(Some((data, max_distance))),
+            )
         } else {
             callback(None)
         }
@@ -687,7 +736,8 @@ impl PlannerState {
 
         for layer in &self.layers {
             for (location, item) in layer.data.iter() {
-                state.entry(*location)
+                state
+                    .entry(*location)
                     .and_modify(|entries| entries.extend(item.iter()))
                     .or_insert_with(|| item.to_owned());
             }
@@ -696,7 +746,10 @@ impl PlannerState {
         state
     }
 
-    pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
+    pub fn visualize<V>(&self, visualizer: &mut V)
+    where
+        V: RoomVisualizer,
+    {
         for layer in &self.layers {
             layer.visualize(visualizer);
         }
@@ -883,7 +936,12 @@ impl std::ops::Sub for PlanLocation {
     }
 }
 
-fn visualize_room_items<'a, T: IntoIterator<Item = (&'a Location, &'a RoomItem)>, V>(data: T, visualizer: &mut V) where V: RoomVisualizer {
+fn visualize_room_items<'a, T: IntoIterator<Item = (&'a Location, &'a RoomItem)>, V>(
+    data: T,
+    visualizer: &mut V,
+) where
+    V: RoomVisualizer,
+{
     for (loc, entry) in data.into_iter() {
         visualizer.render(*loc, entry.structure_type);
     }
@@ -913,7 +971,10 @@ impl Plan {
                     );
                 } else if room_level >= required_rcl {
                     if entry.structure_type == StructureType::Storage {
-                        let structures = room.look_for_at(look::STRUCTURES, &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name));
+                        let structures = room.look_for_at(
+                            look::STRUCTURES,
+                            &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                        );
 
                         for structure in &structures {
                             match structure {
@@ -925,14 +986,21 @@ impl Plan {
                         }
                     }
 
-                    room.create_construction_site(&RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name), entry.structure_type);
+                    room.create_construction_site(
+                        &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                        entry.structure_type,
+                    );
                 }
             }
         }
     }
 
-    pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
-        let items = self.state
+    pub fn visualize<V>(&self, visualizer: &mut V)
+    where
+        V: RoomVisualizer,
+    {
+        let items = self
+            .state
             .iter()
             .flat_map(|(location, entries)| entries.iter().map(move |entry| (location, entry)));
 
@@ -1007,7 +1075,11 @@ where
     }
 
     pub fn iter(&self) -> impl Iterator<Item = ((usize, usize), &T)> {
-        RoomDataArrayIterator { data: &self, x: 0, y: 0 }
+        RoomDataArrayIterator {
+            data: &self,
+            x: 0,
+            y: 0,
+        }
     }
 }
 
@@ -1043,49 +1115,82 @@ impl<'a> PlanNodeChild<'a> {
     fn place(&self, context: &mut NodeContext, state: &mut PlannerState) {
         match self {
             PlanNodeChild::GlobalPlacement(node) => node.place(context, state),
-            PlanNodeChild::LocationPlacement(location, node) => node.place(*location, context, state),
+            PlanNodeChild::LocationPlacement(location, node) => {
+                node.place(*location, context, state)
+            }
         }
     }
 
     fn get_score(&self, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
         match self {
             PlanNodeChild::GlobalPlacement(node) => node.get_score(context, state),
-            PlanNodeChild::LocationPlacement(location, node) => node.get_score(*location, context, state),
+            PlanNodeChild::LocationPlacement(location, node) => {
+                node.get_score(*location, context, state)
+            }
         }
     }
 
     fn mark_visited(&self, gather_data: &mut PlanGatherChildrenData<'a>) {
         match self {
-            PlanNodeChild::GlobalPlacement(node) => gather_data.mark_visited_global(node.as_global()),
-            PlanNodeChild::LocationPlacement(location, node) => gather_data.mark_visited_location(*location, node.as_location()),
+            PlanNodeChild::GlobalPlacement(node) => {
+                gather_data.mark_visited_global(node.as_global())
+            }
+            PlanNodeChild::LocationPlacement(location, node) => {
+                gather_data.mark_visited_location(*location, node.as_location())
+            }
         }
     }
 
-    fn get_children(&self, context: &mut NodeContext, state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'a>) {
+    fn get_children(
+        &self,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'a>,
+    ) {
         match self {
             PlanNodeChild::GlobalPlacement(node) => node.get_children(context, state, gather_data),
-            PlanNodeChild::LocationPlacement(location, node) => node.get_children(*location, context, state, gather_data),
+            PlanNodeChild::LocationPlacement(location, node) => {
+                node.get_children(*location, context, state, gather_data)
+            }
         }
     }
 
-    fn desires_placement(&self, context: &mut NodeContext, state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'a>) -> bool {
+    fn desires_placement(
+        &self,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'a>,
+    ) -> bool {
         match self {
-            PlanNodeChild::GlobalPlacement(node) => gather_data.desires_placement(node.as_base(), context, state),
-            PlanNodeChild::LocationPlacement(_, node) => gather_data.desires_placement(node.as_base(), context, state),
+            PlanNodeChild::GlobalPlacement(node) => {
+                gather_data.desires_placement(node.as_base(), context, state)
+            }
+            PlanNodeChild::LocationPlacement(_, node) => {
+                gather_data.desires_placement(node.as_base(), context, state)
+            }
         }
     }
 
-    fn desires_location(&self, context: &mut NodeContext, state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'a>) -> bool {
+    fn desires_location(
+        &self,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'a>,
+    ) -> bool {
         match self {
             PlanNodeChild::GlobalPlacement(_) => true,
-            PlanNodeChild::LocationPlacement(location, node) => gather_data.desires_location(*location, node.as_location(), context, state),
+            PlanNodeChild::LocationPlacement(location, node) => {
+                gather_data.desires_location(*location, node.as_location(), context, state)
+            }
         }
     }
 
     fn insert(&self, gather_data: &mut PlanGatherChildrenData<'a>) -> bool {
         match self {
             PlanNodeChild::GlobalPlacement(node) => gather_data.insert_global_placement(*node),
-            PlanNodeChild::LocationPlacement(location, node) => gather_data.insert_location_placement(*location, *node),
+            PlanNodeChild::LocationPlacement(location, node) => {
+                gather_data.insert_location_placement(*location, *node)
+            }
         }
     }
 
@@ -1128,21 +1233,35 @@ struct SerializedPlanNodeChild {
 }
 
 impl SerializedPlanNodeChild {
-    pub fn as_entry<'b>(&self, nodes: &PlanGatherNodesData<'b>, index_lookup: &Vec<uuid::Uuid>) -> Result<PlanNodeChild<'b>, String> {
+    pub fn as_entry<'b>(
+        &self,
+        nodes: &PlanGatherNodesData<'b>,
+        index_lookup: &Vec<uuid::Uuid>,
+    ) -> Result<PlanNodeChild<'b>, String> {
         let node_type = self.packed & 0x1;
 
         match node_type {
             0 => {
                 let node_index = (self.packed >> 1) & 0x7F;
-                let node_id = index_lookup.get(node_index as usize).ok_or("Invalid node id")?;
-                let node = nodes.global_placement_nodes.get(node_id).ok_or("Invalid node")?;
+                let node_id = index_lookup
+                    .get(node_index as usize)
+                    .ok_or("Invalid node id")?;
+                let node = nodes
+                    .global_placement_nodes
+                    .get(node_id)
+                    .ok_or("Invalid node")?;
 
                 Ok(PlanNodeChild::GlobalPlacement(*node))
             }
             1 => {
                 let node_index = (self.packed >> 1) & 0x7F;
-                let node_id = index_lookup.get(node_index as usize).ok_or("Invalid node id")?;
-                let node = nodes.location_placement_nodes.get(node_id).ok_or("Invalid node")?;
+                let node_id = index_lookup
+                    .get(node_index as usize)
+                    .ok_or("Invalid node id")?;
+                let node = nodes
+                    .location_placement_nodes
+                    .get(node_id)
+                    .ok_or("Invalid node")?;
 
                 let location = PlanLocation::from_packed((self.packed >> 16) as u16);
 
@@ -1175,7 +1294,11 @@ impl<'b> PlanGatherNodesData<'b> {
             .collect()
     }
 
-    pub fn insert_global_placement(&mut self, id: uuid::Uuid, node: &'b dyn PlanGlobalPlacementNode) -> bool {
+    pub fn insert_global_placement(
+        &mut self,
+        id: uuid::Uuid,
+        node: &'b dyn PlanGlobalPlacementNode,
+    ) -> bool {
         match self.global_placement_nodes.entry(id) {
             Entry::Occupied(_) => false,
             Entry::Vacant(e) => {
@@ -1186,7 +1309,11 @@ impl<'b> PlanGatherNodesData<'b> {
         }
     }
 
-    pub fn insert_location_placement(&mut self, id: uuid::Uuid, node: &'b dyn PlanLocationPlacementNode) -> bool {
+    pub fn insert_location_placement(
+        &mut self,
+        id: uuid::Uuid,
+        node: &'b dyn PlanLocationPlacementNode,
+    ) -> bool {
         match self.location_placement_nodes.entry(id) {
             Entry::Occupied(_) => false,
             Entry::Vacant(e) => {
@@ -1271,7 +1398,12 @@ impl<'a> PlanGatherChildrenData<'a> {
         }
     }
 
-    pub fn desires_placement(&mut self, node: &'a dyn PlanBaseNode, context: &mut NodeContext, state: &PlannerState) -> bool {
+    pub fn desires_placement(
+        &mut self,
+        node: &'a dyn PlanBaseNode,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> bool {
         match self
             .desires_placement_cache
             .iter()
@@ -1316,13 +1448,18 @@ impl<'a> PlanGatherChildrenData<'a> {
             .iter()
             .any(|(other, _)| std::ptr::eq(node, *other))
         {
-            location_data.desires_location_cache.push((node, desires_location));
+            location_data
+                .desires_location_cache
+                .push((node, desires_location));
         }
 
         desires_location
     }
 
-    fn get_location_data(&mut self, position: PlanLocation) -> &mut PlanGatherChildrenLocationData<'a> {
+    fn get_location_data(
+        &mut self,
+        position: PlanLocation,
+    ) -> &mut PlanGatherChildrenLocationData<'a> {
         self.location_nodes
             .entry(position)
             .or_insert_with(|| PlanGatherChildrenLocationData {
@@ -1332,7 +1469,10 @@ impl<'a> PlanGatherChildrenData<'a> {
             })
     }
 
-    fn try_get_location_data(&self, position: PlanLocation) -> Option<&PlanGatherChildrenLocationData<'a>> {
+    fn try_get_location_data(
+        &self,
+        position: PlanLocation,
+    ) -> Option<&PlanGatherChildrenLocationData<'a>> {
         self.location_nodes.get(&position)
     }
 
@@ -1344,11 +1484,21 @@ impl<'a> PlanGatherChildrenData<'a> {
         self.global_nodes.mark_visited(node);
     }
 
-    pub fn has_visited_location(&self, position: PlanLocation, node: &'a dyn PlanLocationNode) -> bool {
-        self.try_get_location_data(position).map(|l| l.has_visited(node)).unwrap_or(false)
+    pub fn has_visited_location(
+        &self,
+        position: PlanLocation,
+        node: &'a dyn PlanLocationNode,
+    ) -> bool {
+        self.try_get_location_data(position)
+            .map(|l| l.has_visited(node))
+            .unwrap_or(false)
     }
 
-    pub fn mark_visited_location(&mut self, position: PlanLocation, node: &'a dyn PlanLocationNode) {
+    pub fn mark_visited_location(
+        &mut self,
+        position: PlanLocation,
+        node: &'a dyn PlanLocationNode,
+    ) {
         let location_data = self.get_location_data(position);
 
         location_data.mark_visited(node);
@@ -1358,14 +1508,22 @@ impl<'a> PlanGatherChildrenData<'a> {
         self.global_nodes.insert(node)
     }
 
-    pub fn insert_location_placement(&mut self, position: PlanLocation, node: &'a dyn PlanLocationPlacementNode) -> bool {
+    pub fn insert_location_placement(
+        &mut self,
+        position: PlanLocation,
+        node: &'a dyn PlanLocationPlacementNode,
+    ) -> bool {
         let location_data = self.get_location_data(position);
 
         location_data.insert(node)
     }
 
     pub fn collect(self) -> Vec<PlanNodeChild<'a>> {
-        let globals = self.global_nodes.inserted.iter().map(|node| PlanNodeChild::GlobalPlacement(*node));
+        let globals = self
+            .global_nodes
+            .inserted
+            .iter()
+            .map(|node| PlanNodeChild::GlobalPlacement(*node));
 
         self.location_nodes
             .iter()
@@ -1478,14 +1636,19 @@ pub trait PlanBaseNode {
 pub trait PlanGlobalNode: PlanBaseNode {
     fn as_base(&self) -> &dyn PlanBaseNode;
 
-    fn get_children<'s>(&'s self, context: &mut NodeContext, state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'s>);
+    fn get_children<'s>(
+        &'s self,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'s>,
+    );
 }
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PlacementPhase {
     Pre,
     Normal,
-    Post
+    Post,
 }
 
 pub trait PlanGlobalPlacementNode: PlanGlobalNode {
@@ -1537,9 +1700,19 @@ pub trait PlanLocationPlacementNode: PlanLocationNode {
 
     fn must_place(&self) -> bool;
 
-    fn get_maximum_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>;
+    fn get_maximum_score(
+        &self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> Option<f32>;
 
-    fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>;
+    fn get_score(
+        &self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> Option<f32>;
 
     fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState);
 }
@@ -1568,13 +1741,26 @@ impl<'a> PlanNodeStorage<'a> {
         }
     }
 
-    fn desires_placement(&self, context: &mut NodeContext, state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'a>) -> bool {
+    fn desires_placement(
+        &self,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'a>,
+    ) -> bool {
         match self {
             PlanNodeStorage::Empty => false,
-            PlanNodeStorage::GlobalPlacement(n) => gather_data.desires_placement(n.as_base(), context, state),
-            PlanNodeStorage::GlobalExpansion(n) => gather_data.desires_placement(n.as_base(), context, state),
-            PlanNodeStorage::LocationPlacement(n) => gather_data.desires_placement(n.as_base(), context, state),
-            PlanNodeStorage::LocationExpansion(n) => gather_data.desires_placement(n.as_base(), context, state),
+            PlanNodeStorage::GlobalPlacement(n) => {
+                gather_data.desires_placement(n.as_base(), context, state)
+            }
+            PlanNodeStorage::GlobalExpansion(n) => {
+                gather_data.desires_placement(n.as_base(), context, state)
+            }
+            PlanNodeStorage::LocationPlacement(n) => {
+                gather_data.desires_placement(n.as_base(), context, state)
+            }
+            PlanNodeStorage::LocationExpansion(n) => {
+                gather_data.desires_placement(n.as_base(), context, state)
+            }
         }
     }
 
@@ -1589,8 +1775,12 @@ impl<'a> PlanNodeStorage<'a> {
             PlanNodeStorage::Empty => false,
             PlanNodeStorage::GlobalPlacement(_) => true,
             PlanNodeStorage::GlobalExpansion(_) => true,
-            PlanNodeStorage::LocationPlacement(n) => gather_data.desires_location(position, n.as_location(), context, state),
-            PlanNodeStorage::LocationExpansion(n) => gather_data.desires_location(position, n.as_location(), context, state),
+            PlanNodeStorage::LocationPlacement(n) => {
+                gather_data.desires_location(position, n.as_location(), context, state)
+            }
+            PlanNodeStorage::LocationExpansion(n) => {
+                gather_data.desires_location(position, n.as_location(), context, state)
+            }
         }
     }
 
@@ -1610,7 +1800,9 @@ impl<'a> PlanNodeStorage<'a> {
             PlanNodeStorage::LocationPlacement(n) => {
                 gather_data.insert_location_placement(position, *n);
             }
-            PlanNodeStorage::LocationExpansion(n) => n.get_children(position, context, state, gather_data),
+            PlanNodeStorage::LocationExpansion(n) => {
+                n.get_children(position, context, state, gather_data)
+            }
         }
     }
 }
@@ -1639,7 +1831,8 @@ where
                 for offset in ONE_OFFSET_SQUARE {
                     let next_location = *pos + offset;
                     if next_location.in_room_bounds() {
-                        let terrain = terrain.get_xy(next_location.x() as u8, next_location.y() as u8);
+                        let terrain =
+                            terrain.get_xy(next_location.x() as u8, next_location.y() as u8);
                         if !terrain.contains(TerrainFlags::WALL) && is_passable(next_location) {
                             to_apply.insert(next_location);
                         }
@@ -1687,7 +1880,12 @@ impl<'a> PlanGlobalNode for PlaceAwayFromWallsNode<'a> {
         self
     }
 
-    fn get_children<'s>(&'s self, context: &mut NodeContext, state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'s>) {
+    fn get_children<'s>(
+        &'s self,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'s>,
+    ) {
         if !gather_data.has_visited_global(self) {
             gather_data.mark_visited_global(self);
 
@@ -1695,13 +1893,19 @@ impl<'a> PlanGlobalNode for PlaceAwayFromWallsNode<'a> {
                 let locations: Vec<PlanLocation> = context
                     .wall_distance()
                     .iter()
-                    .filter(|(_, distance)| distance.map(|d| d >= self.wall_distance).unwrap_or(false))
+                    .filter(|(_, distance)| {
+                        distance.map(|d| d >= self.wall_distance).unwrap_or(false)
+                    })
                     .map(|((x, y), _)| PlanLocation::new(x as i8, y as i8))
                     .collect();
 
                 for location in &locations {
-                    if self.child.desires_location(*location, context, state, gather_data) {
-                        self.child.insert_or_expand(*location, context, state, gather_data);
+                    if self
+                        .child
+                        .desires_location(*location, context, state, gather_data)
+                    {
+                        self.child
+                            .insert_or_expand(*location, context, state, gather_data);
                     }
                 }
             }
@@ -1719,17 +1923,26 @@ impl<'a> PlanGlobalExpansionNode for PlaceAwayFromWallsNode<'a> {
 pub struct PlanPlacement {
     structure_type: StructureType,
     offset: PlanLocation,
-    optional: bool
+    optional: bool,
 }
 
 impl PlanPlacement {
-    fn can_place(&self, plan_location: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> bool {
+    fn can_place(
+        &self,
+        plan_location: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> bool {
         if let Some(placement_location) = plan_location.as_build_location() {
             if self.structure_type == StructureType::Extractor {
                 if !context.minerals().contains(&plan_location) {
                     return false;
                 }
-            } else if context.terrain().get(&placement_location).contains(TerrainFlags::WALL) {
+            } else if context
+                .terrain()
+                .get(&placement_location)
+                .contains(TerrainFlags::WALL)
+            {
                 return false;
             } else if !placement_location.in_room_from_edge(ROOM_BUILD_BORDER as u32 + 1) {
                 return false;
@@ -1758,7 +1971,7 @@ pub const fn placement(structure_type: StructureType, x: i8, y: i8) -> PlanPlace
     PlanPlacement {
         structure_type,
         offset: PlanLocation { x, y },
-        optional: false
+        optional: false,
     }
 }
 
@@ -1766,7 +1979,7 @@ pub const fn optional_placement(structure_type: StructureType, x: i8, y: i8) -> 
     PlanPlacement {
         structure_type,
         offset: PlanLocation { x, y },
-        optional: true
+        optional: true,
     }
 }
 
@@ -1777,9 +1990,12 @@ pub struct FixedPlanNode<'a> {
     pub placements: &'a [PlanPlacement],
     pub child: PlanNodeStorage<'a>,
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
-    pub desires_location: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> bool,
-    pub maximum_scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
-    pub scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+    pub desires_location:
+        fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> bool,
+    pub maximum_scorer:
+        fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+    pub scorer:
+        fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -1818,9 +2034,10 @@ impl<'a> PlanLocationNode for FixedPlanNode<'a> {
         _gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
         if (self.desires_location)(position, context, state) {
-            self.placements
-                .iter()
-                .all(|placement| placement.optional || placement.can_place(position + placement.offset, context, state))
+            self.placements.iter().all(|placement| {
+                placement.optional
+                    || placement.can_place(position + placement.offset, context, state)
+            })
         } else {
             false
         }
@@ -1837,9 +2054,12 @@ impl<'a> PlanLocationNode for FixedPlanNode<'a> {
             gather_data.mark_visited_location(position, self);
 
             if self.child.desires_placement(context, state, gather_data)
-                && self.child.desires_location(position, context, state, gather_data)
+                && self
+                    .child
+                    .desires_location(position, context, state, gather_data)
             {
-                self.child.insert_or_expand(position, context, state, gather_data);
+                self.child
+                    .insert_or_expand(position, context, state, gather_data);
             }
         }
     }
@@ -1863,23 +2083,40 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
         self.must_place
     }
 
-    fn get_maximum_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+    fn get_maximum_score(
+        &self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> Option<f32> {
         (self.maximum_scorer)(position, context, state)
     }
 
-    fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+    fn get_score(
+        &self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> Option<f32> {
         (self.scorer)(position, context, state)
     }
 
     fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) {
         let mut min_rcl = None;
 
-        for placement in self.placements.iter().filter(|p| p.structure_type != StructureType::Road) {
+        for placement in self
+            .placements
+            .iter()
+            .filter(|p| p.structure_type != StructureType::Road)
+        {
             let placement_location = (position + placement.offset).as_location().unwrap();
 
-            if !placement.optional || placement.can_place(placement_location.into(), context, state) {
-                let rcl = state.get_rcl_for_next_structure(placement.structure_type).unwrap();
-                
+            if !placement.optional || placement.can_place(placement_location.into(), context, state)
+            {
+                let rcl = state
+                    .get_rcl_for_next_structure(placement.structure_type)
+                    .unwrap();
+
                 min_rcl = min_rcl.map(|r| if rcl < r { rcl } else { r }).or(Some(rcl));
 
                 state.insert(
@@ -1894,10 +2131,15 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
 
         let road_rcl = min_rcl.unwrap_or(1);
 
-        for placement in self.placements.iter().filter(|p| p.structure_type == StructureType::Road) {
+        for placement in self
+            .placements
+            .iter()
+            .filter(|p| p.structure_type == StructureType::Road)
+        {
             let placement_location = (position + placement.offset).as_location().unwrap();
 
-            if !placement.optional || placement.can_place(placement_location.into(), context, state) {
+            if !placement.optional || placement.can_place(placement_location.into(), context, state)
+            {
                 state.insert(
                     placement_location,
                     RoomItem {
@@ -1951,7 +2193,8 @@ impl<'a> PlanLocationNode for OffsetPlanNode<'a> {
         self.offsets.iter().any(|offset| {
             let offset_position = position + offset;
 
-            self.child.desires_location(offset_position, context, state, gather_data)
+            self.child
+                .desires_location(offset_position, context, state, gather_data)
         })
     }
 
@@ -1969,8 +2212,12 @@ impl<'a> PlanLocationNode for OffsetPlanNode<'a> {
                 for offset in self.offsets.iter() {
                     let offset_position = position + offset;
 
-                    if self.child.desires_location(offset_position, context, state, gather_data) {
-                        self.child.insert_or_expand(offset_position, context, state, gather_data);
+                    if self
+                        .child
+                        .desires_location(offset_position, context, state, gather_data)
+                    {
+                        self.child
+                            .insert_or_expand(offset_position, context, state, gather_data);
                     }
                 }
             }
@@ -2042,7 +2289,9 @@ impl<'a> PlanLocationNode for MultiPlacementExpansionNode<'a> {
             gather_data.mark_visited_location(position, self);
 
             for child in self.children.iter() {
-                if child.desires_placement(context, state, gather_data) && child.desires_location(position, context, state, gather_data) {
+                if child.desires_placement(context, state, gather_data)
+                    && child.desires_location(position, context, state, gather_data)
+                {
                     child.insert_or_expand(position, context, state, gather_data);
                 }
             }
@@ -2115,7 +2364,9 @@ impl<'a> PlanLocationNode for LazyPlanNode<'a> {
 
             let node = (self.child)();
 
-            if node.desires_placement(context, state, gather_data) && node.desires_location(position, context, state, gather_data) {
+            if node.desires_placement(context, state, gather_data)
+                && node.desires_location(position, context, state, gather_data)
+            {
                 node.insert_or_expand(position, context, state, gather_data);
             }
         }
@@ -2160,7 +2411,12 @@ impl<'a> PlanGlobalNode for FixedLocationPlanNode<'a> {
         self
     }
 
-    fn get_children<'s>(&'s self, context: &mut NodeContext, state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'s>) {
+    fn get_children<'s>(
+        &'s self,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'s>,
+    ) {
         if !gather_data.has_visited_global(self) {
             gather_data.mark_visited_global(self);
 
@@ -2168,8 +2424,12 @@ impl<'a> PlanGlobalNode for FixedLocationPlanNode<'a> {
                 let locations = (self.locations)(context);
 
                 for location in locations {
-                    if self.child.desires_location(location, context, state, gather_data) {
-                        self.child.insert_or_expand(location, context, state, gather_data);
+                    if self
+                        .child
+                        .desires_location(location, context, state, gather_data)
+                    {
+                        self.child
+                            .insert_or_expand(location, context, state, gather_data);
                     }
                 }
             }
@@ -2189,7 +2449,7 @@ pub struct MinCutWallsPlanNode {
     pub placement_phase: PlacementPhase,
     pub must_place: bool,
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
-    pub rcl_override: Option<u8>
+    pub rcl_override: Option<u8>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2218,16 +2478,21 @@ impl PlanGlobalNode for MinCutWallsPlanNode {
         self
     }
 
-    fn get_children<'s>(&'s self, _context: &mut NodeContext, _state: &PlannerState, gather_data: &mut PlanGatherChildrenData<'s>) {
+    fn get_children<'s>(
+        &'s self,
+        _context: &mut NodeContext,
+        _state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'s>,
+    ) {
         if !gather_data.has_visited_global(self) {
             gather_data.mark_visited_global(self);
         }
     }
 }
 
-use rs_graph::*;
 use rs_graph::maxflow::*;
 use rs_graph::traits::*;
+use rs_graph::*;
 use rs_graph::{Buildable, Builder};
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2258,10 +2523,10 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
     fn place(&self, context: &mut NodeContext, state: &mut PlannerState) {
         let mut builder = <rs_graph::linkedlistgraph::LinkedListGraph::<u32> as Buildable>::Builder::with_capacities(2* 50 * 50 + 2, 2* 50 * 50 + 2);
-        
+
         let top_nodes = builder.add_nodes(50 * 50);
         let bottom_nodes = builder.add_nodes(50 * 50);
-        
+
         // source (protected) and sink (exit)
         let source = builder.add_node();
         let sink = builder.add_node();
@@ -2279,7 +2544,9 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
             // and mark all tiles within range 1 as unbuildable
             let adjacent_positions = ONE_OFFSET_SQUARE
                 .iter()
-                .map(|offset| PlanLocation::new(exit_position.x() as i8, exit_position.y() as i8) + offset)
+                .map(|offset| {
+                    PlanLocation::new(exit_position.x() as i8, exit_position.y() as i8) + offset
+                })
                 .filter_map(|offset_location| offset_location.try_into().ok());
 
             for exit_adjacent_position in adjacent_positions {
@@ -2295,8 +2562,10 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
         // Protect all tiles we've put structures on so far
         for (location, room_item) in room_items.iter() {
             let should_protect = match room_item.structure_type {
-                StructureType::KeeperLair | StructureType::Portal | StructureType::InvaderCore => false,
-                _ => true
+                StructureType::KeeperLair | StructureType::Portal | StructureType::InvaderCore => {
+                    false
+                }
+                _ => true,
             };
 
             if should_protect {
@@ -2328,7 +2597,7 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
         {
             let terrain = context.terrain();
-        
+
             // step over all tiles in the room, creating a mesh of flow connections
             // walkable tiles have a weight: 1 edge from their 'top' node to their 'bot' node,
             // which is what limits the 'flow' through the tile and what will ultimately be cut if
@@ -2381,7 +2650,12 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
                     let adjacent_locations = ONE_OFFSET_SQUARE
                         .iter()
-                        .map(|offset| PlanLocation::new(current_location.x() as i8, current_location.y() as i8) + offset)
+                        .map(|offset| {
+                            PlanLocation::new(
+                                current_location.x() as i8,
+                                current_location.y() as i8,
+                            ) + offset
+                        })
                         .filter_map(|offset_location| offset_location.try_into().ok());
 
                     for adjacent_location in adjacent_locations {
@@ -2389,15 +2663,16 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
                         if adjacent_terrain_mask.contains(TerrainFlags::WALL) {
                             // good wall
-                            continue
+                            continue;
                         }
 
                         if !protected.contains(&adjacent_location) {
                             // walkable, link from this bottom to that top if it's not protected
                             builder.add_edge(
                                 bottom_nodes[(x + y * 50) as usize],
-                                top_nodes
-                                    [(adjacent_location.x() as u32 + adjacent_location.y() as u32 * 50) as usize],
+                                top_nodes[(adjacent_location.x() as u32
+                                    + adjacent_location.y() as u32 * 50)
+                                    as usize],
                             );
                             edge_weights.push(std::usize::MAX);
                         }
@@ -2438,7 +2713,8 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
         let terrain = context.terrain();
 
         for candidate_node in top_cut.difference(&bot_cut) {
-            let location = Location::from_coords((candidate_node % 50) as u32, (candidate_node / 50) as u32);
+            let location =
+                Location::from_coords((candidate_node % 50) as u32, (candidate_node / 50) as u32);
 
             let terrain_mask = terrain.get(&location);
 
@@ -2446,24 +2722,25 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
                 continue;
             }
 
-            if let Some(rcl) = self.rcl_override.or_else(|| state.get_rcl_for_next_structure(StructureType::Rampart)) {
+            if let Some(rcl) = self
+                .rcl_override
+                .or_else(|| state.get_rcl_for_next_structure(StructureType::Rampart))
+            {
                 state.insert(
                     location,
                     RoomItem {
                         structure_type: StructureType::Rampart,
                         required_rcl: rcl,
-                    }
+                    },
                 );
             }
         }
     }
 }
 
-
-
 pub struct FloodFillPlanNodeLevel<'a> {
     pub offsets: &'a [(i8, i8)],
-    pub node: &'a dyn PlanLocationPlacementNode
+    pub node: &'a dyn PlanLocationPlacementNode,
 }
 
 pub struct FloodFillPlanNode<'a> {
@@ -2476,7 +2753,8 @@ pub struct FloodFillPlanNode<'a> {
     pub minimum_candidates: usize,
     pub levels: &'a [FloodFillPlanNodeLevel<'a>],
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
-    pub scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+    pub scorer:
+        fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2499,7 +2777,11 @@ impl<'a> PlanBaseNode for FloodFillPlanNode<'a> {
         state: &PlannerState,
         gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
-        (self.desires_placement)(context, state) && self.levels.iter().any(|l| l.node.desires_placement(context, state, gather_data))
+        (self.desires_placement)(context, state)
+            && self
+                .levels
+                .iter()
+                .any(|l| l.node.desires_placement(context, state, gather_data))
     }
 }
 
@@ -2516,7 +2798,11 @@ impl<'a> PlanLocationNode for FloodFillPlanNode<'a> {
         state: &PlannerState,
         gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
-        let mut locations: HashSet<_> = self.start_offsets.into_iter().map(|o| position + o).collect();
+        let mut locations: HashSet<_> = self
+            .start_offsets
+            .into_iter()
+            .map(|o| position + o)
+            .collect();
 
         for lod in self.levels.iter() {
             let mut expanded_locations: HashSet<PlanLocation> = locations
@@ -2524,10 +2810,10 @@ impl<'a> PlanLocationNode for FloodFillPlanNode<'a> {
                 .flat_map(|&location| lod.offsets.iter().map(move |offset| location + *offset))
                 .collect();
 
-            if expanded_locations
-                .iter()
-                .any(|location| lod.node.desires_location(*location, context, state, gather_data))
-            {
+            if expanded_locations.iter().any(|location| {
+                lod.node
+                    .desires_location(*location, context, state, gather_data)
+            }) {
                 return true;
             }
 
@@ -2565,16 +2851,30 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
         &self.id
     }
 
-    fn get_maximum_score(&self, _position: PlanLocation, _context: &mut NodeContext, _state: &PlannerState) -> Option<f32> {
+    fn get_maximum_score(
+        &self,
+        _position: PlanLocation,
+        _context: &mut NodeContext,
+        _state: &PlannerState,
+    ) -> Option<f32> {
         None
     }
 
-    fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+    fn get_score(
+        &self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> Option<f32> {
         (self.scorer)(position, context, state)
     }
 
     fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) {
-        let mut locations: HashSet<_> = self.start_offsets.into_iter().map(|o| position + o).collect();
+        let mut locations: HashSet<_> = self
+            .start_offsets
+            .into_iter()
+            .map(|o| position + o)
+            .collect();
         let mut next_locations: HashSet<_> = HashSet::new();
         let mut visited_locations: HashSet<_> = HashSet::new();
 
@@ -2584,8 +2884,11 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
 
         while current_expansion < self.maximum_expansion && !locations.is_empty() {
             let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
-            
-            while current_expansion < self.maximum_expansion && !locations.is_empty() && candidates.len() < self.minimum_candidates {
+
+            while current_expansion < self.maximum_expansion
+                && !locations.is_empty()
+                && candidates.len() < self.minimum_candidates
+            {
                 for root_location in locations.iter() {
                     if !visited_locations.contains(root_location) {
                         visited_locations.insert(*root_location);
@@ -2593,19 +2896,37 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
                         let mut lod_locations = vec![*root_location];
 
                         for lod in self.levels.iter() {
-                            let expanded_locations = lod_locations
-                                .iter()
-                                .flat_map(|&location| lod.offsets.iter().map(move |offset| location + *offset));
+                            let expanded_locations = lod_locations.iter().flat_map(|&location| {
+                                lod.offsets.iter().map(move |offset| location + *offset)
+                            });
 
                             let mut next_lod_locations = Vec::new();
 
                             for lod_location in expanded_locations {
-                                if !current_gather_data.has_visited_location(lod_location, lod.node.as_location()) {
-                                    current_gather_data.mark_visited_location(lod_location, lod.node.as_location());
+                                if !current_gather_data
+                                    .has_visited_location(lod_location, lod.node.as_location())
+                                {
+                                    current_gather_data.mark_visited_location(
+                                        lod_location,
+                                        lod.node.as_location(),
+                                    );
 
-                                    let got_candidate = if current_gather_data.desires_placement(lod.node.as_base(), context, state)
-                                        && current_gather_data.desires_location(lod_location, lod.node.as_location(), context, state) {
-                                        let max_score = lod.node.get_maximum_score(lod_location, context, state);
+                                    let got_candidate = if current_gather_data.desires_placement(
+                                        lod.node.as_base(),
+                                        context,
+                                        state,
+                                    ) && current_gather_data
+                                        .desires_location(
+                                            lod_location,
+                                            lod.node.as_location(),
+                                            context,
+                                            state,
+                                        ) {
+                                        let max_score = lod.node.get_maximum_score(
+                                            lod_location,
+                                            context,
+                                            state,
+                                        );
 
                                         candidates.push((lod_location, lod.node, max_score));
 
@@ -2644,7 +2965,11 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
                 max_score_a.partial_cmp(&max_score_b).unwrap()
             });
 
-            while (candidates.len() >= self.minimum_candidates || locations.is_empty() || current_expansion >= self.maximum_expansion) && !candidates.is_empty() {
+            while (candidates.len() >= self.minimum_candidates
+                || locations.is_empty()
+                || current_expansion >= self.maximum_expansion)
+                && !candidates.is_empty()
+            {
                 let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
 
                 let mut best_candidate = None;
@@ -2658,12 +2983,21 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
                         .unwrap_or(true);
 
                     if can_exceed_best_score {
-                        let can_place = current_gather_data.desires_placement(node.as_base(), context, state) && 
-                            current_gather_data.desires_location(*location, node.as_location(), context, state);
+                        let can_place =
+                            current_gather_data.desires_placement(node.as_base(), context, state)
+                                && current_gather_data.desires_location(
+                                    *location,
+                                    node.as_location(),
+                                    context,
+                                    state,
+                                );
 
                         if can_place {
                             if let Some(score) = node.get_score(*location, context, state) {
-                                if best_candidate.map(|(best_score, _)| score > best_score).unwrap_or(true) {
+                                if best_candidate
+                                    .map(|(best_score, _)| score > best_score)
+                                    .unwrap_or(true)
+                                {
                                     best_candidate = Some((score, (location, node)));
                                 }
                             } else {
@@ -2691,7 +3025,7 @@ pub struct FirstPossiblePlanNode<'a> {
     pub id: uuid::Uuid,
     pub placement_phase: PlacementPhase,
     pub must_place: bool,
-    pub options: &'a [&'a dyn PlanLocationPlacementNode]
+    pub options: &'a [&'a dyn PlanLocationPlacementNode],
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2766,21 +3100,37 @@ impl<'a> PlanLocationPlacementNode for FirstPossiblePlanNode<'a> {
         &self.id
     }
 
-    fn get_maximum_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+    fn get_maximum_score(
+        &self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> Option<f32> {
         self.options
             .iter()
             .filter_map(|option| option.get_maximum_score(position, context, state))
             .max_by(|a, b| a.partial_cmp(b).unwrap())
     }
 
-    fn get_score(&self, position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+    fn get_score(
+        &self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+    ) -> Option<f32> {
         let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
 
         self.options
             .iter()
             .filter_map(|option| {
                 if current_gather_data.desires_placement(option.as_base(), context, state)
-                    && current_gather_data.desires_location(position, option.as_location(), context, state) {
+                    && current_gather_data.desires_location(
+                        position,
+                        option.as_location(),
+                        context,
+                        state,
+                    )
+                {
                     option.get_score(position, context, state)
                 } else {
                     None
@@ -2794,7 +3144,12 @@ impl<'a> PlanLocationPlacementNode for FirstPossiblePlanNode<'a> {
 
         for option in self.options.iter() {
             if current_gather_data.desires_placement(option.as_base(), context, state)
-                && current_gather_data.desires_location(position, option.as_location(), context, state)
+                && current_gather_data.desires_location(
+                    position,
+                    option.as_location(),
+                    context,
+                    state,
+                )
                 && current_gather_data.insert_location_placement(position, *option)
             {
                 option.place(position, context, state);
@@ -2810,8 +3165,10 @@ pub struct NearestToStructureExpansionPlanNode<'a> {
     pub allowed_offsets: &'a [(i8, i8)],
     pub child: PlanNodeStorage<'a>,
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
-    pub desires_location: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> bool,
-    pub scorer: fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+    pub desires_location:
+        fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> bool,
+    pub scorer:
+        fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2830,7 +3187,8 @@ impl<'a> PlanBaseNode for NearestToStructureExpansionPlanNode<'a> {
         state: &PlannerState,
         gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
-        (self.desires_placement)(context, state) && self.child.desires_placement(context, state, gather_data)
+        (self.desires_placement)(context, state)
+            && self.child.desires_placement(context, state, gather_data)
     }
 }
 
@@ -2847,9 +3205,10 @@ impl<'a> PlanLocationNode for NearestToStructureExpansionPlanNode<'a> {
         state: &PlannerState,
         gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
-        self.allowed_offsets
-            .iter()
-            .any(|offset| self.child.desires_location(position + *offset, context, state, gather_data))
+        self.allowed_offsets.iter().any(|offset| {
+            self.child
+                .desires_location(position + *offset, context, state, gather_data)
+        })
     }
 
     fn get_children<'s>(
@@ -2863,32 +3222,43 @@ impl<'a> PlanLocationNode for NearestToStructureExpansionPlanNode<'a> {
             gather_data.mark_visited_location(position, self);
 
             if self.child.desires_placement(context, state, gather_data) {
-                let mut offset_locations = state.with_structure_distances(self.structure_type, context.terrain(), |storage_distance| {
-                    if let Some((storage_distance, _max_distance)) = storage_distance {
-                        self.allowed_offsets
-                            .iter()
-                            .filter_map(|offset| {
-                                let offset_location = position + *offset;
+                let mut offset_locations = state.with_structure_distances(
+                    self.structure_type,
+                    context.terrain(),
+                    |storage_distance| {
+                        if let Some((storage_distance, _max_distance)) = storage_distance {
+                            self.allowed_offsets
+                                .iter()
+                                .filter_map(|offset| {
+                                    let offset_location = position + *offset;
 
-                                let distance = storage_distance.get(offset_location.x() as usize, offset_location.y() as usize);
+                                    let distance = storage_distance.get(
+                                        offset_location.x() as usize,
+                                        offset_location.y() as usize,
+                                    );
 
-                                if let Some(distance) = distance {
-                                    Some((offset_location, *distance))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect()
-                    } else {
-                        Vec::new()
-                    }
-                });
+                                    if let Some(distance) = distance {
+                                        Some((offset_location, *distance))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    },
+                );
 
                 offset_locations.sort_by_key(|(_, distance)| *distance);
 
                 for (offset_location, _) in offset_locations.iter() {
-                    if self.child.desires_location(*offset_location, context, state, gather_data) {
-                        self.child.insert_or_expand(*offset_location, context, state, gather_data);
+                    if self
+                        .child
+                        .desires_location(*offset_location, context, state, gather_data)
+                    {
+                        self.child
+                            .insert_or_expand(*offset_location, context, state, gather_data);
 
                         return;
                     }
@@ -2922,13 +3292,13 @@ enum ExitSide {
     Top,
     Right,
     Bottom,
-    Left
+    Left,
 }
 
 pub struct ExitIterator<'a> {
     terrain: &'a FastRoomTerrain,
     side: Option<ExitSide>,
-    index: u32
+    index: u32,
 }
 
 impl<'a> Iterator for ExitIterator<'a> {
@@ -2962,7 +3332,10 @@ impl<'a> Iterator for ExitIterator<'a> {
                     res
                 }
                 Some(ExitSide::Bottom) => {
-                    let res = Location::from_coords((ROOM_WIDTH as u32 - 1) - self.index, ROOM_HEIGHT as u32 - 1);
+                    let res = Location::from_coords(
+                        (ROOM_WIDTH as u32 - 1) - self.index,
+                        ROOM_HEIGHT as u32 - 1,
+                    );
 
                     self.index += 1;
 
@@ -3018,20 +3391,27 @@ impl FastRoomTerrain {
         ExitIterator {
             terrain: self,
             side: Some(ExitSide::Top),
-            index: 0
+            index: 0,
         }
     }
 }
 
 struct EvaluationStackEntry<'b> {
-    children: Vec<PlanNodeChild<'b>>
+    children: Vec<PlanNodeChild<'b>>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl<'b> EvaluationStackEntry<'b> {
-    pub fn to_serialized(&self, index_lookup: &HashMap<uuid::Uuid, usize>) -> SerializedEvaluationStackEntry {
+    pub fn to_serialized(
+        &self,
+        index_lookup: &HashMap<uuid::Uuid, usize>,
+    ) -> SerializedEvaluationStackEntry {
         SerializedEvaluationStackEntry {
-            children: self.children.iter().map(|c| c.to_serialized(index_lookup)).collect()
+            children: self
+                .children
+                .iter()
+                .map(|c| c.to_serialized(index_lookup))
+                .collect(),
         }
     }
 }
@@ -3067,11 +3447,21 @@ struct SerializedEvaluationStack {
 }
 
 impl SerializedEvaluationStack {
-    pub fn from_stack(gathered_nodes: &PlanGatherNodesData, entries: &Vec<EvaluationStackEntry>) -> SerializedEvaluationStack {
+    pub fn from_stack(
+        gathered_nodes: &PlanGatherNodesData,
+        entries: &Vec<EvaluationStackEntry>,
+    ) -> SerializedEvaluationStack {
         let identifiers: Vec<_> = gathered_nodes.get_all_ids();
-        let index_lookup: HashMap<_, _> = identifiers.iter().enumerate().map(|(index, id)| (*id, index)).collect();
+        let index_lookup: HashMap<_, _> = identifiers
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (*id, index))
+            .collect();
 
-        let serialized_entries = entries.iter().map(|e| e.to_serialized(&index_lookup)).collect();
+        let serialized_entries = entries
+            .iter()
+            .map(|e| e.to_serialized(&index_lookup))
+            .collect();
 
         SerializedEvaluationStack {
             identifiers,
@@ -3079,7 +3469,10 @@ impl SerializedEvaluationStack {
         }
     }
 
-    pub fn to_stack<'b>(&self, gathered_nodes: &PlanGatherNodesData<'b>) -> Result<Vec<EvaluationStackEntry<'b>>, String> {
+    pub fn to_stack<'b>(
+        &self,
+        gathered_nodes: &PlanGatherNodesData<'b>,
+    ) -> Result<Vec<EvaluationStackEntry<'b>>, String> {
         let mut stack = Vec::new();
 
         for serialized_entry in self.entries.iter() {
@@ -3110,8 +3503,14 @@ impl<'t, H> TreePlanner<'t, H>
 where
     H: FnMut(&PlannerState, &mut NodeContext),
 {
-    pub fn new<'a>(data_source: &'a mut dyn PlannerRoomDataSource, handler: H) -> TreePlanner<'a, H> {
-        TreePlanner { data_source, handler }
+    pub fn new<'a>(
+        data_source: &'a mut dyn PlannerRoomDataSource,
+        handler: H,
+    ) -> TreePlanner<'a, H> {
+        TreePlanner {
+            data_source,
+            handler,
+        }
     }
 
     pub fn seed<'r, 's>(
@@ -3135,7 +3534,10 @@ where
 
         let mut ordered_children: Vec<_> = children
             .into_iter()
-            .filter_map(|node| node.get_score(&mut context, state).map(|score| (node, score)))
+            .filter_map(|node| {
+                node.get_score(&mut context, state)
+                    .map(|score| (node, score))
+            })
             .collect();
 
         ordered_children.sort_by(|(node_a, score_a), (node_b, score_b)| {
@@ -3143,10 +3545,7 @@ where
                 .placement_phase()
                 .cmp(&node_b.placement_phase())
                 .reverse()
-                .then_with(|| node_a
-                    .must_place()
-                    .cmp(&node_b.must_place())
-                )
+                .then_with(|| node_a.must_place().cmp(&node_b.must_place()))
                 .then_with(|| score_a.partial_cmp(score_b).unwrap())
         });
 
@@ -3194,12 +3593,19 @@ where
                 let entry = stack.last_mut().unwrap();
                 let mut entry_failed = false;
 
-                while !entry.children.is_empty() && placed_nodes.is_empty() && !entry_failed && should_continue() {
+                while !entry.children.is_empty()
+                    && placed_nodes.is_empty()
+                    && !entry_failed
+                    && should_continue()
+                {
                     let mut to_place = Vec::new();
 
                     while !entry.children.is_empty() {
-                        let current_phase = to_place.last().map(|c: &PlanNodeChild| c.placement_phase());
-                        let matches_phase = current_phase.map(|phase| phase == entry.children.last().unwrap().placement_phase()).unwrap_or(true);
+                        let current_phase =
+                            to_place.last().map(|c: &PlanNodeChild| c.placement_phase());
+                        let matches_phase = current_phase
+                            .map(|phase| phase == entry.children.last().unwrap().placement_phase())
+                            .unwrap_or(true);
 
                         if entry.children.last().unwrap().must_place() && matches_phase {
                             to_place.push(entry.children.pop().unwrap());
@@ -3219,7 +3625,13 @@ where
                     let mut validate_location = false;
 
                     while let Some(child) = to_place.pop() {
-                        if validate_location && !child.desires_location(&mut context, state, &mut PlanGatherChildrenData::new()) {
+                        if validate_location
+                            && !child.desires_location(
+                                &mut context,
+                                state,
+                                &mut PlanGatherChildrenData::new(),
+                            )
+                        {
                             entry_failed = true;
                             break;
                         }
@@ -3254,7 +3666,11 @@ where
 
                 for existing_child in stack.last().unwrap().children.iter() {
                     if existing_child.desires_placement(&mut context, state, &mut gathered_children)
-                        && existing_child.desires_location(&mut context, state, &mut gathered_children)
+                        && existing_child.desires_location(
+                            &mut context,
+                            state,
+                            &mut gathered_children,
+                        )
                     {
                         existing_child.insert(&mut gathered_children);
                     }
@@ -3264,7 +3680,10 @@ where
 
                 let mut ordered_children: Vec<_> = children
                     .into_iter()
-                    .filter_map(|node| node.get_score(&mut context, state).map(|score| (node, score)))
+                    .filter_map(|node| {
+                        node.get_score(&mut context, state)
+                            .map(|score| (node, score))
+                    })
                     .collect();
 
                 ordered_children.sort_by(|(node_a, score_a), (node_b, score_b)| {
@@ -3272,10 +3691,7 @@ where
                         .placement_phase()
                         .cmp(&node_b.placement_phase())
                         .reverse()
-                        .then_with(|| node_a
-                            .must_place()
-                            .cmp(&node_b.must_place())
-                        )
+                        .then_with(|| node_a.must_place().cmp(&node_b.must_place()))
                         .then_with(|| score_a.partial_cmp(score_b).unwrap())
                 });
 
@@ -3319,13 +3735,20 @@ pub struct PlanRunningStateData {
 }
 
 impl PlanRunningStateData {
-    pub fn visualize<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
+    pub fn visualize<V>(&self, visualizer: &mut V)
+    where
+        V: RoomVisualizer,
+    {
         self.planner_state.visualize(visualizer);
     }
 
-    pub fn visualize_best<V>(&self, visualizer: &mut V) where V: RoomVisualizer {
+    pub fn visualize_best<V>(&self, visualizer: &mut V)
+    where
+        V: RoomVisualizer,
+    {
         if let Some(best_plan) = &self.best_plan {
-            let items = best_plan.state
+            let items = best_plan
+                .state
                 .iter()
                 .flat_map(|(location, entries)| entries.iter().map(move |entry| (location, entry)));
 
@@ -3413,7 +3836,10 @@ where
         data_source: &mut dyn PlannerRoomDataSource,
         evaluation_state: &mut PlanRunningStateData,
         should_continue: F,
-    ) -> Result<PlanEvaluationResult, String> where F: Fn() -> bool {
+    ) -> Result<PlanEvaluationResult, String>
+    where
+        F: Fn() -> bool,
+    {
         let mut current_best = evaluation_state.best_plan.as_ref().map(|p| p.score);
         let mut new_best_plan = None;
 
@@ -3443,7 +3869,10 @@ where
                     evaluation_state.best_plan = new_best_plan;
                 }
 
-                let plan = evaluation_state.best_plan.take().map(|p| Plan { state: p.state });
+                let plan = evaluation_state
+                    .best_plan
+                    .take()
+                    .map(|p| Plan { state: p.state });
 
                 PlanEvaluationResult::Complete(plan)
             }

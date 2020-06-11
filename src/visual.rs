@@ -70,7 +70,7 @@ impl RoomVisualizer for RoomVisual {
                     Some(CircleStyle::default().fill("black").opacity(1.0)),
                 );
             }
-             StructureType::Lab => {
+            StructureType::Lab => {
                 RoomVisual::circle(
                     self,
                     location.x() as f32,
@@ -85,7 +85,7 @@ impl RoomVisualizer for RoomVisual {
                     location.y() as f32,
                     Some(CircleStyle::default().fill("Fuschia").opacity(1.0)),
                 );
-            } 
+            }
             StructureType::Observer => {
                 RoomVisual::circle(
                     self,
@@ -93,7 +93,7 @@ impl RoomVisualizer for RoomVisual {
                     location.y() as f32,
                     Some(CircleStyle::default().fill("Lime").opacity(1.0)),
                 );
-            } 
+            }
             StructureType::Factory => {
                 RoomVisual::circle(
                     self,

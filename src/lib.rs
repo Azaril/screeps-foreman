@@ -1,8 +1,8 @@
 pub mod constants;
-pub mod planner;
-pub mod scoring;
 pub mod layout;
 pub mod location;
+pub mod planner;
+pub mod scoring;
 
 #[cfg(feature = "shim")]
 pub mod shim;

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use super::planner::*;
 use super::constants::*;
+use super::planner::*;
 use super::*;
 
 //
@@ -9,7 +9,11 @@ use super::*;
 //
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
-fn distance_to_storage_score_linear(position: PlanLocation, _context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+fn distance_to_storage_score_linear(
+    position: PlanLocation,
+    _context: &mut NodeContext,
+    state: &PlannerState,
+) -> Option<f32> {
     if position.in_room_bounds() {
         state
             .get_linear_distance_to_structure(position, StructureType::Storage, 1)
@@ -20,10 +24,19 @@ fn distance_to_storage_score_linear(position: PlanLocation, _context: &mut NodeC
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
-fn distance_to_storage_score_pathfind(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+fn distance_to_storage_score_pathfind(
+    position: PlanLocation,
+    context: &mut NodeContext,
+    state: &PlannerState,
+) -> Option<f32> {
     if position.in_room_bounds() {
         state
-            .get_pathfinding_distance_to_structure(position, StructureType::Storage, 1, context.terrain())
+            .get_pathfinding_distance_to_structure(
+                position,
+                StructureType::Storage,
+                1,
+                context.terrain(),
+            )
             .map(|distance| 1.0 - (distance as f32 / ROOM_WIDTH.max(ROOM_HEIGHT) as f32))
     } else {
         None
@@ -31,18 +44,26 @@ fn distance_to_storage_score_pathfind(position: PlanLocation, context: &mut Node
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
-fn distance_to_storage_score_flood_fill(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32> {
+fn distance_to_storage_score_flood_fill(
+    position: PlanLocation,
+    context: &mut NodeContext,
+    state: &PlannerState,
+) -> Option<f32> {
     if position.in_room_bounds() {
         state
-            .with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
-                if let Some((storage_distances, max_distance)) = storage_distances {
-                    storage_distances
-                        .get(position.x() as usize, position.y() as usize)
-                        .map(|distance| (distance, max_distance))
-                } else {
-                    None
-                }
-            })
+            .with_structure_distances(
+                StructureType::Storage,
+                context.terrain(),
+                |storage_distances| {
+                    if let Some((storage_distances, max_distance)) = storage_distances {
+                        storage_distances
+                            .get(position.x() as usize, position.y() as usize)
+                            .map(|distance| (distance, max_distance))
+                    } else {
+                        None
+                    }
+                },
+            )
             .map(|(distance, max_distance)| 1.0 - (distance as f32 / max_distance as f32))
     } else {
         None
@@ -70,7 +91,9 @@ const LABS: &FixedPlanNode = &FixedPlanNode {
         placement(StructureType::Road, 3, 3),
     ],
     child: PlanNodeStorage::Empty,
-    desires_placement: |_, state| state.get_count(StructureType::Lab) == 0 && state.get_count(StructureType::Storage) > 0,
+    desires_placement: |_, state| {
+        state.get_count(StructureType::Lab) == 0 && state.get_count(StructureType::Storage) > 0
+    },
     desires_location: |_, _, _| true,
     maximum_scorer: |_, _, _| Some(1.0),
     scorer: |_, _, _| Some(1.0),
@@ -96,7 +119,10 @@ const EXTENSION_CROSS: &FixedPlanNode = &FixedPlanNode {
         placement(StructureType::Road, 1, -1),
     ],
     child: PlanNodeStorage::Empty,
-    desires_placement: |_, state| state.get_count(StructureType::Extension) <= 55 && state.get_count(StructureType::Storage) > 0,
+    desires_placement: |_, state| {
+        state.get_count(StructureType::Extension) <= 55
+            && state.get_count(StructureType::Storage) > 0
+    },
     desires_location: |_, _, _| true,
     maximum_scorer: distance_to_storage_score_linear,
     scorer: distance_to_storage_score_pathfind,
@@ -114,7 +140,10 @@ const EXTENSION: &FixedPlanNode = &FixedPlanNode {
         optional_placement(StructureType::Road, 0, -1),
     ],
     child: PlanNodeStorage::Empty,
-    desires_placement: |_, state| state.get_count(StructureType::Extension) < 60 && state.get_count(StructureType::Storage) > 0,
+    desires_placement: |_, state| {
+        state.get_count(StructureType::Extension) < 60
+            && state.get_count(StructureType::Storage) > 0
+    },
     desires_location: |_, _, _| true,
     maximum_scorer: distance_to_storage_score_linear,
     scorer: distance_to_storage_score_pathfind,
@@ -197,9 +226,9 @@ const CONTROLLER_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement
             .iter()
             .filter(|&controller_location| controller_location.distance_to(location.into()) <= 1)
             .any(|controller_location| {
-                !container_locations
-                    .iter()
-                    .any(|container_location| controller_location.distance_to(container_location.into()) <= 1)
+                !container_locations.iter().any(|container_location| {
+                    controller_location.distance_to(container_location.into()) <= 1
+                })
             })
     },
     maximum_scorer: |_, _, _| Some(1.0),
@@ -255,7 +284,12 @@ const SOURCE_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&Fi
         desires_location: |location, context, state| {
             if location.in_room_bounds() {
                 state
-                    .get_pathfinding_distance_to_structure(location, StructureType::Storage, 1, context.terrain())
+                    .get_pathfinding_distance_to_structure(
+                        location,
+                        StructureType::Storage,
+                        1,
+                        context.terrain(),
+                    )
                     .map(|distance| distance >= 8)
                     .unwrap_or(false)
             } else {
@@ -272,10 +306,9 @@ const SOURCE_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&Fi
         let mut matched_sources = Vec::new();
 
         for (source_index, source_location) in source_locations.iter().enumerate() {
-            if let Some(index) = container_locations
-                .iter()
-                .position(|container_location| source_location.distance_to(container_location.into()) <= 1)
-            {
+            if let Some(index) = container_locations.iter().position(|container_location| {
+                source_location.distance_to(container_location.into()) <= 1
+            }) {
                 container_locations.remove(index);
                 matched_sources.push(source_index)
             }
@@ -319,10 +352,9 @@ const EXTRACTOR_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(
         let mut matched_extractors = Vec::new();
 
         for (extractor_index, extractor_location) in extractor_locations.iter().enumerate() {
-            if let Some(index) = container_locations
-                .iter()
-                .position(|container_location| extractor_location.distance_to(*container_location) <= 1)
-            {
+            if let Some(index) = container_locations.iter().position(|container_location| {
+                extractor_location.distance_to(*container_location) <= 1
+            }) {
                 container_locations.remove(index);
                 matched_extractors.push(extractor_index)
             }
@@ -353,7 +385,9 @@ const EXTRACTOR: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlan
         desires_location: |_, _, _| true,
         scorer: |_, _, _| Some(1.0),
     }),
-    desires_placement: |context, state| (state.get_count(StructureType::Extractor) as usize) < context.minerals().len(),
+    desires_placement: |context, state| {
+        (state.get_count(StructureType::Extractor) as usize) < context.minerals().len()
+    },
     desires_location: |location, context, _| context.minerals().contains(&location),
     maximum_scorer: |_, _, _| Some(1.0),
     scorer: |_, _, _| Some(1.0),
@@ -371,14 +405,15 @@ const RAMPARTS_NODE: &MinCutWallsPlanNode = &MinCutWallsPlanNode {
     placement_phase: PlacementPhase::Post,
     must_place: false,
     desires_placement: |_, _| true,
-    rcl_override: Some(4)
+    rcl_override: Some(4),
 };
 
 const RAMPARTS: PlanNodeStorage = PlanNodeStorage::GlobalPlacement(RAMPARTS_NODE);
 
-const POST_BUNKER_NODES: PlanNodeStorage = PlanNodeStorage::LocationExpansion(&MultiPlacementExpansionNode {
-    children: &[CONTROLLERS, SOURCES, MINERALS],
-});
+const POST_BUNKER_NODES: PlanNodeStorage =
+    PlanNodeStorage::LocationExpansion(&MultiPlacementExpansionNode {
+        children: &[CONTROLLERS, SOURCES, MINERALS],
+    });
 
 const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlanNode {
     id: uuid::Uuid::from_u128(0x1533_4930_d790_4a49_b1e0_1e30_acc4_eb46u128),
@@ -432,36 +467,40 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
                 id: uuid::Uuid::from_u128(0xeff2_1b89_0149_4bc9_b4f4_8138_5cd6_5232u128),
                 placement_phase: PlacementPhase::Normal,
                 must_place: false,
-                start_offsets: &[
-                    (-3, -3),
-                    (-1, -5),
-                    (-5, -1),
-                    (3, 3),
-                    (5, 1),
-                    (1, 5),
+                start_offsets: &[(-3, -3), (-1, -5), (-5, -1), (3, 3), (5, 1), (1, 5)],
+                expansion_offsets: &[
+                    (-4, 0),
+                    (-2, 2),
+                    (0, 4),
+                    (2, 2),
+                    (4, 0),
+                    (2, -2),
+                    (0, -4),
+                    (-2, -2),
                 ],
-                expansion_offsets: &[(-4, 0), (-2, 2), (0, 4), (2, 2), (4, 0), (2, -2), (0, -4), (-2, -2)],
                 maximum_expansion: 20,
                 minimum_candidates: 10,
                 levels: &[
                     FloodFillPlanNodeLevel {
                         offsets: &[(0, 0)],
                         node: &FirstPossiblePlanNode {
-                            id: uuid::Uuid::from_u128(0x6172_a491_955b_4029_b835_bd54_3c15_5e14u128),
+                            id: uuid::Uuid::from_u128(
+                                0x6172_a491_955b_4029_b835_bd54_3c15_5e14u128,
+                            ),
                             placement_phase: PlacementPhase::Normal,
                             must_place: true,
-                            options: &[UTILITY_CROSS, EXTENSION_CROSS]
+                            options: &[UTILITY_CROSS, EXTENSION_CROSS],
                         },
                     },
                     FloodFillPlanNodeLevel {
                         offsets: ONE_OFFSET_DIAMOND,
-                        node: EXTENSION
+                        node: EXTENSION,
                     },
                 ],
                 desires_placement: |_, _| true,
                 scorer: |_, _, _| Some(0.5),
             }),
-            RAMPARTS
+            RAMPARTS,
         ],
     }),
     desires_placement: |_, state| state.get_count(StructureType::Spawn) == 0,
@@ -470,7 +509,10 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
     scorer: |_, _, _| Some(1.0),
 });
 
-const ROOT_BUNKER: PlanNodeStorage = PlanNodeStorage::LocationExpansion(&MultiPlacementExpansionNode { children: &[BUNKER_CORE] });
+const ROOT_BUNKER: PlanNodeStorage =
+    PlanNodeStorage::LocationExpansion(&MultiPlacementExpansionNode {
+        children: &[BUNKER_CORE],
+    });
 
 pub const ALL_ROOT_NODES: &[&dyn PlanGlobalExpansionNode] = &[&PlaceAwayFromWallsNode {
     wall_distance: 4,

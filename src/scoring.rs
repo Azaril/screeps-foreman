@@ -1,8 +1,8 @@
 use super::planner::*;
+use super::*;
 use crate::constants::*;
 use itertools::*;
 use std::convert::*;
-use super::*;
 
 struct StateScore {
     score: f32,
@@ -34,10 +34,9 @@ fn has_source_containers(state: &PlannerState, context: &mut NodeContext) -> boo
     let mut matched_sources = Vec::new();
 
     for (source_index, source_location) in source_locations.iter().enumerate() {
-        if let Some(index) = container_locations
-            .iter()
-            .position(|container_location| source_location.distance_to(container_location.into()) <= 1)
-        {
+        if let Some(index) = container_locations.iter().position(|container_location| {
+            source_location.distance_to(container_location.into()) <= 1
+        }) {
             container_locations.remove(index);
             matched_sources.push(source_index)
         }
@@ -57,26 +56,33 @@ fn has_source_links(state: &PlannerState, context: &mut NodeContext) -> bool {
 
     //TODO: This currently validates that there is a link for sources at least 8 distance from storage - that is not currently
     //      possible with the layout due to 'must place flag'.
-    let matching_containers = state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
-        if let Some((storage_distances, _max_distance)) = storage_distances {
-            container_locations
-                .iter()
-                .filter(|&container_location| {
-                    source_locations
-                        .iter()
-                        .any(|source_location| source_location.distance_to(container_location.into()) <= 1)
-                })
-                .filter(|&container_location| {
-                    storage_distances
-                        .get(container_location.x() as usize, container_location.y() as usize)
-                        .map(|d| d >= 8)
-                        .unwrap_or(false)
-                })
-                .collect()
-        } else {
-            Vec::new()
-        }
-    });
+    let matching_containers = state.with_structure_distances(
+        StructureType::Storage,
+        context.terrain(),
+        |storage_distances| {
+            if let Some((storage_distances, _max_distance)) = storage_distances {
+                container_locations
+                    .iter()
+                    .filter(|&container_location| {
+                        source_locations.iter().any(|source_location| {
+                            source_location.distance_to(container_location.into()) <= 1
+                        })
+                    })
+                    .filter(|&container_location| {
+                        storage_distances
+                            .get(
+                                container_location.x() as usize,
+                                container_location.y() as usize,
+                            )
+                            .map(|d| d >= 8)
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        },
+    );
 
     !matching_containers.iter().any(|&container_location| {
         !link_locations
@@ -128,10 +134,9 @@ fn has_controller_containers(state: &PlannerState, context: &mut NodeContext) ->
     let mut matched_controllers = Vec::new();
 
     for (controller_index, controller_location) in controller_locations.iter().enumerate() {
-        if let Some(index) = container_locations
-            .iter()
-            .position(|container_location| controller_location.distance_to(container_location.into()) <= 1)
-        {
+        if let Some(index) = container_locations.iter().position(|container_location| {
+            controller_location.distance_to(container_location.into()) <= 1
+        }) {
             container_locations.remove(index);
             matched_controllers.push(controller_index)
         }
@@ -151,26 +156,33 @@ fn has_controller_links(state: &PlannerState, context: &mut NodeContext) -> bool
 
     //TODO: This currently validates that there is a link for controllers at least 8 distance from storage - that is not currently
     //      possible with the layout due to 'must place flag'.
-    let matching_containers = state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
-        if let Some((storage_distances, _max_distance)) = storage_distances {
-            container_locations
-                .iter()
-                .filter(|&container_location| {
-                    controller_locations
-                        .iter()
-                        .any(|source_location| source_location.distance_to(container_location.into()) <= 1)
-                })
-                .filter(|&container_location| {
-                    storage_distances
-                        .get(container_location.x() as usize, container_location.y() as usize)
-                        .map(|d| d >= 8)
-                        .unwrap_or(false)
-                })
-                .collect()
-        } else {
-            Vec::new()
-        }
-    });
+    let matching_containers = state.with_structure_distances(
+        StructureType::Storage,
+        context.terrain(),
+        |storage_distances| {
+            if let Some((storage_distances, _max_distance)) = storage_distances {
+                container_locations
+                    .iter()
+                    .filter(|&container_location| {
+                        controller_locations.iter().any(|source_location| {
+                            source_location.distance_to(container_location.into()) <= 1
+                        })
+                    })
+                    .filter(|&container_location| {
+                        storage_distances
+                            .get(
+                                container_location.x() as usize,
+                                container_location.y() as usize,
+                            )
+                            .map(|d| d >= 8)
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        },
+    );
 
     !matching_containers.iter().any(|&container_location| {
         !link_locations
@@ -183,94 +195,113 @@ fn has_reachable_structures(state: &PlannerState, context: &mut NodeContext) -> 
     let placements: Vec<_> = state.get_all();
 
     state
-        .with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
-            storage_distances.map(|(distances, _max_distance)| {
-                for (location, item) in placements.iter() {
-                    let reachability_range: i8 = match item.structure_type() {
-                        StructureType::Wall => 3,
-                        _ => 1,
-                    };
+        .with_structure_distances(
+            StructureType::Storage,
+            context.terrain(),
+            |storage_distances| {
+                storage_distances.map(|(distances, _max_distance)| {
+                    for (location, item) in placements.iter() {
+                        let reachability_range: i8 = match item.structure_type() {
+                            StructureType::Wall => 3,
+                            _ => 1,
+                        };
 
-                    let mut found_reach = false;
+                        let mut found_reach = false;
 
-                    for x in -reachability_range..=reachability_range {
-                        for y in -reachability_range..=reachability_range {
-                            let position = (location.x() as i8 + x, location.y() as i8 + y);
+                        for x in -reachability_range..=reachability_range {
+                            for y in -reachability_range..=reachability_range {
+                                let position = (location.x() as i8 + x, location.y() as i8 + y);
 
-                            if position.in_room_bounds() && distances.get(position.0 as usize, position.1 as usize).is_some() {
-                                found_reach = true;
+                                if position.in_room_bounds()
+                                    && distances
+                                        .get(position.0 as usize, position.1 as usize)
+                                        .is_some()
+                                {
+                                    found_reach = true;
 
+                                    break;
+                                }
+                            }
+
+                            if found_reach {
                                 break;
                             }
                         }
 
-                        if found_reach {
-                            break;
+                        if !found_reach {
+                            return false;
                         }
                     }
 
-                    if !found_reach {
-                        return false;
-                    }
-                }
-
-                true
-            })
-        })
+                    true
+                })
+            },
+        )
         .unwrap_or(false)
 }
 
 fn has_reachable_sources(state: &PlannerState, context: &mut NodeContext) -> bool {
     let sources = context.sources().to_vec();
 
-    state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
-        if let Some((storage_distances, _max_distance)) = storage_distances {
-            sources.iter().all(|source_location| {
-                ONE_OFFSET_SQUARE.iter().any(|offset| {
-                    let offset_location = *source_location + offset;
+    state.with_structure_distances(
+        StructureType::Storage,
+        context.terrain(),
+        |storage_distances| {
+            if let Some((storage_distances, _max_distance)) = storage_distances {
+                sources.iter().all(|source_location| {
+                    ONE_OFFSET_SQUARE.iter().any(|offset| {
+                        let offset_location = *source_location + offset;
 
-                    if offset_location.in_room_bounds() {
-                        storage_distances
-                            .get(offset_location.x() as usize, offset_location.y() as usize)
-                            .is_some()
-                    } else {
-                        false
-                    }
+                        if offset_location.in_room_bounds() {
+                            storage_distances
+                                .get(offset_location.x() as usize, offset_location.y() as usize)
+                                .is_some()
+                        } else {
+                            false
+                        }
+                    })
                 })
-            })
-        } else {
-            false
-        }
-    })
+            } else {
+                false
+            }
+        },
+    )
 }
 
 fn source_distance_score(state: &PlannerState, context: &mut NodeContext) -> Vec<StateScore> {
     let sources = context.sources().to_vec();
 
-    let source_distances = state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
-        if let Some((storage_distances, max_distance)) = storage_distances {
-            sources
-                .iter()
-                .filter_map(|source_location| {
-                    ONE_OFFSET_SQUARE
-                        .iter()
-                        .filter_map(|offset| {
-                            let offset_location = *source_location + offset;
+    let source_distances = state.with_structure_distances(
+        StructureType::Storage,
+        context.terrain(),
+        |storage_distances| {
+            if let Some((storage_distances, max_distance)) = storage_distances {
+                sources
+                    .iter()
+                    .filter_map(|source_location| {
+                        ONE_OFFSET_SQUARE
+                            .iter()
+                            .filter_map(|offset| {
+                                let offset_location = *source_location + offset;
 
-                            if offset_location.in_room_bounds() {
-                                *storage_distances.get(offset_location.x() as usize, offset_location.y() as usize)
-                            } else {
-                                None
-                            }
-                        })
-                        .min_by_key(|distance| *distance)
-                        .map(|distance| (distance, max_distance))
-                })
-                .collect()
-        } else {
-            Vec::new()
-        }
-    });
+                                if offset_location.in_room_bounds() {
+                                    *storage_distances.get(
+                                        offset_location.x() as usize,
+                                        offset_location.y() as usize,
+                                    )
+                                } else {
+                                    None
+                                }
+                            })
+                            .min_by_key(|distance| *distance)
+                            .map(|distance| (distance, max_distance))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        },
+    );
 
     let mut scores = Vec::new();
 
@@ -286,7 +317,10 @@ fn source_distance_score(state: &PlannerState, context: &mut NodeContext) -> Vec
     scores
 }
 
-fn source_distance_balance_score(state: &PlannerState, context: &mut NodeContext) -> Vec<StateScore> {
+fn source_distance_balance_score(
+    state: &PlannerState,
+    context: &mut NodeContext,
+) -> Vec<StateScore> {
     let mut scores = Vec::new();
 
     let storage_locations = state.get_locations(StructureType::Storage);
@@ -328,36 +362,44 @@ fn source_distance_balance_score(state: &PlannerState, context: &mut NodeContext
 fn extension_distance_score(state: &PlannerState, context: &mut NodeContext) -> Vec<StateScore> {
     let extension_locations = state.get_locations(StructureType::Extension);
 
-    let total_distance = state.with_structure_distances(StructureType::Storage, context.terrain(), |storage_distances| {
-        if let Some((storage_distances, max_distance)) = storage_distances {
-            let total_distance = extension_locations
-                .iter()
-                .filter_map(|extension_location| {
-                    let extension_location: PlanLocation = extension_location.into();
+    let total_distance = state.with_structure_distances(
+        StructureType::Storage,
+        context.terrain(),
+        |storage_distances| {
+            if let Some((storage_distances, max_distance)) = storage_distances {
+                let total_distance = extension_locations
+                    .iter()
+                    .filter_map(|extension_location| {
+                        let extension_location: PlanLocation = extension_location.into();
 
-                    ONE_OFFSET_SQUARE
-                        .iter()
-                        .filter_map(|offset| {
-                            let offset_location = extension_location + offset;
+                        ONE_OFFSET_SQUARE
+                            .iter()
+                            .filter_map(|offset| {
+                                let offset_location = extension_location + offset;
 
-                            if offset_location.in_room_bounds() {
-                                *storage_distances.get(offset_location.x() as usize, offset_location.y() as usize)
-                            } else {
-                                None
-                            }
-                        })
-                        .min_by_key(|distance| *distance)
-                        .map(|distance| distance as f32)
-                })
-                .sum::<f32>();
+                                if offset_location.in_room_bounds() {
+                                    *storage_distances.get(
+                                        offset_location.x() as usize,
+                                        offset_location.y() as usize,
+                                    )
+                                } else {
+                                    None
+                                }
+                            })
+                            .min_by_key(|distance| *distance)
+                            .map(|distance| distance as f32)
+                    })
+                    .sum::<f32>();
 
-            Some((total_distance, max_distance as f32))
-        } else {
-            None
-        }
-    });
+                Some((total_distance, max_distance as f32))
+            } else {
+                None
+            }
+        },
+    );
 
-    let (total_extension_distance, max_distance) = total_distance.unwrap_or((f32::INFINITY, f32::INFINITY));
+    let (total_extension_distance, max_distance) =
+        total_distance.unwrap_or((f32::INFINITY, f32::INFINITY));
 
     let average_distance = total_extension_distance / (extension_locations.len() as f32);
     let average_distance_score = 1.0 - average_distance / max_distance;
@@ -385,7 +427,7 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
         has_mandatory_buildings,
         has_mineral_extractors,
         has_source_containers,
-        has_controller_containers,        
+        has_controller_containers,
         has_mineral_containers,
         has_controller_links,
         has_source_links,
@@ -406,12 +448,15 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
     */
 
     let scorers = [
-        source_distance_score, 
-        source_distance_balance_score, 
-        extension_distance_score
+        source_distance_score,
+        source_distance_balance_score,
+        extension_distance_score,
     ];
 
-    let weights: Vec<_> = scorers.iter().flat_map(|scorer| (scorer)(state, context)).collect();
+    let weights: Vec<_> = scorers
+        .iter()
+        .flat_map(|scorer| (scorer)(state, context))
+        .collect();
 
     let total_score: f32 = weights.iter().map(|s| s.score * s.weight).sum();
     let total_weight: f32 = weights.iter().map(|s| s.weight).sum();
