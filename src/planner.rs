@@ -11,6 +11,9 @@ use std::cell::RefCell;
 use std::collections::hash_map::*;
 use std::collections::*;
 use std::convert::*;
+use rs_graph::maxflow::*;
+use rs_graph::traits::*;
+use rs_graph::{Buildable, Builder};
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-1, -1),
@@ -2489,11 +2492,6 @@ impl PlanGlobalNode for MinCutWallsPlanNode {
         }
     }
 }
-
-use rs_graph::maxflow::*;
-use rs_graph::traits::*;
-use rs_graph::*;
-use rs_graph::{Buildable, Builder};
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
