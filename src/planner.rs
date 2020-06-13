@@ -25,6 +25,14 @@ pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
     (1, -1),
     (0, -1),
 ];
+
+pub const ONE_OFFSET_CROSS: &[(i8, i8)] = &[
+    (-1, 0),
+    (0, 1),
+    (1, 0),
+    (0, -1),
+];
+
 pub const TWO_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-2, -2),
     (-2, -1),
@@ -2710,27 +2718,58 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
         let terrain = context.terrain();
 
-        for candidate_node in top_cut.difference(&bot_cut) {
-            let location =
-                Location::from_coords((candidate_node % 50) as u32, (candidate_node / 50) as u32);
+        let mut candidates: HashSet<_> = top_cut.difference(&bot_cut).collect();
 
-            let terrain_mask = terrain.get(&location);
+        while !candidates.is_empty() {
+            let mut to_process: Vec<(Location, StructureType)> = Vec::new();
 
-            if terrain_mask.contains(TerrainFlags::WALL) {
-                continue;
-            }
+            let candidate_node = **candidates.iter().next().expect("Expected seed");
 
-            if let Some(rcl) = self
-                .rcl_override
-                .or_else(|| state.get_rcl_for_next_structure(StructureType::Rampart))
-            {
-                state.insert(
-                    location,
-                    RoomItem {
-                        structure_type: StructureType::Rampart,
-                        required_rcl: rcl,
-                    },
-                );
+            let location = Location::from_coords((candidate_node % 50) as u32, (candidate_node / 50) as u32);
+
+            to_process.push((location, StructureType::Rampart));
+
+            while let Some((location, structure_type)) = to_process.pop() {
+                let candidate_node = location.x() as usize + (location.y() as usize * 50);
+
+                if candidates.remove(&candidate_node) {
+                    let terrain_mask = terrain.get(&location);
+            
+                    if !terrain_mask.contains(TerrainFlags::WALL) {
+                        if let Some(rcl) = self
+                        .rcl_override
+                        .or_else(|| state.get_rcl_for_next_structure(structure_type))
+                        {
+                            state.insert(
+                                location,
+                                RoomItem {
+                                    structure_type: structure_type,
+                                    required_rcl: rcl,
+                                },
+                            );
+
+                            let adjacent_positions = ONE_OFFSET_CROSS
+                                .iter()
+                                .map(|offset| PlanLocation::from(location) + offset)
+                                .filter(|offset_location| offset_location.in_room_build_bounds())
+                                .filter_map(|offset_location| offset_location.try_into().ok());
+
+                            for adjacent_position in adjacent_positions {
+                                let next_structure = if structure_type == StructureType::Rampart {
+                                    if state.get(&adjacent_position).map(|e| e.is_empty()).unwrap_or(true) {
+                                        StructureType::Wall
+                                    } else {
+                                        StructureType::Rampart
+                                    }
+                                } else { 
+                                    StructureType::Rampart 
+                                };
+
+                                to_process.push((adjacent_position, next_structure));
+                            }
+                        }
+                    }
+                }
             }
         }
     }

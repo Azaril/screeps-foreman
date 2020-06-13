@@ -203,6 +203,7 @@ fn has_reachable_structures(state: &PlannerState, context: &mut NodeContext) -> 
                     for (location, item) in placements.iter() {
                         let reachability_range: i8 = match item.structure_type() {
                             StructureType::Wall => 3,
+                            StructureType::Rampart => 3,
                             _ => 1,
                         };
 
