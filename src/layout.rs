@@ -2,6 +2,7 @@
 
 use super::constants::*;
 use super::planner::*;
+use super::utility::*;
 use super::*;
 
 //
@@ -37,7 +38,7 @@ fn distance_to_storage_score_pathfind(
                 1,
                 context.terrain(),
             )
-            .map(|distance| 1.0 - (distance as f32 / ROOM_WIDTH.max(ROOM_HEIGHT) as f32))
+            .map(|(_, distance)| 1.0 - (distance as f32 / ROOM_WIDTH.max(ROOM_HEIGHT) as f32))
     } else {
         None
     }
@@ -281,21 +282,7 @@ const SOURCE_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&Fi
         allowed_offsets: ONE_OFFSET_SQUARE,
         child: SOURCE_LINK,
         desires_placement: |_, _| true,
-        desires_location: |location, context, state| {
-            if location.in_room_bounds() {
-                state
-                    .get_pathfinding_distance_to_structure(
-                        location,
-                        StructureType::Storage,
-                        1,
-                        context.terrain(),
-                    )
-                    .map(|distance| distance >= 8)
-                    .unwrap_or(false)
-            } else {
-                false
-            }
-        },
+        desires_location: |_, _, _| true,
         scorer: |_, _, _| Some(1.0),
     }),
     desires_placement: |_context, state| state.get_count(StructureType::Container) < 5,
@@ -405,6 +392,7 @@ const RAMPARTS_NODE: &MinCutWallsPlanNode = &MinCutWallsPlanNode {
     placement_phase: PlacementPhase::Post,
     must_place: false,
     desires_placement: |_, _| true,
+    ready_for_placement: |context, state| has_mandatory_buildings(state, context),
     rcl_override: Some(4),
 };
 
@@ -479,7 +467,7 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
                     (-2, -2),
                 ],
                 maximum_expansion: 20,
-                minimum_candidates: 10,
+                minimum_candidates: 20,
                 levels: &[
                     FloodFillPlanNodeLevel {
                         offsets: &[(0, 0)],
@@ -499,6 +487,13 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
                 ],
                 desires_placement: |_, _| true,
                 scorer: |_, _, _| Some(0.5),
+                validator: |_, state| {
+                    if state.get_count(StructureType::Extension) == 60 {
+                        Ok(())
+                    } else {
+                        Err(())
+                    }
+                },
             }),
             RAMPARTS,
         ],

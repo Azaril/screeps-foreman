@@ -14,6 +14,7 @@ use std::convert::*;
 use rs_graph::maxflow::*;
 use rs_graph::traits::*;
 use rs_graph::{Buildable, Builder};
+use rs_graph::linkedlistgraph::*;
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-1, -1),
@@ -605,7 +606,7 @@ impl PlannerState {
         structure_type: StructureType,
         range: u32,
         terrain: &FastRoomTerrain,
-    ) -> Option<u32> {
+    ) -> Option<(Vec<PlanLocation>, u32)> {
         let is_passable = |location: PlanLocation| {
             if let Ok(location) = Location::try_from(location) {
                 if terrain.get(&location).contains(TerrainFlags::WALL) {
@@ -639,20 +640,20 @@ impl PlannerState {
                 .map(|location| (location, 1))
         };
 
-        self.get_locations(structure_type)
-            .iter()
-            .filter_map(|goal_location| {
-                let goal_location = goal_location.into();
+        let goals: Vec<PlanLocation> = self.get_locations(structure_type).iter().map(|l| l.into()).collect();
 
-                astar(
-                    &position,
-                    get_neighbours,
-                    |p| p.distance_to(goal_location) as u32,
-                    |p| p.distance_to(goal_location) as u32 <= range,
-                )
-            })
-            .min_by_key(|(_, cost)| *cost)
-            .map(|(_, cost)| cost)
+        if !goals.is_empty() {
+            let distance_to_goals = |p: &PlanLocation| goals.iter().map(|g| p.distance_to(*g) as u32).min().unwrap();
+
+            astar(
+                &position,
+                get_neighbours,
+                distance_to_goals,
+                |p| distance_to_goals(p) <= range,
+            )
+        } else {
+            None
+        }
     }
 
     pub fn get_linear_distance_to_structure(
@@ -1123,7 +1124,7 @@ impl<'a> PlanNodeChild<'a> {
         }
     }
 
-    fn place(&self, context: &mut NodeContext, state: &mut PlannerState) {
+    fn place(&self, context: &mut NodeContext, state: &mut PlannerState) -> Result<(), ()> {
         match self {
             PlanNodeChild::GlobalPlacement(node) => node.place(context, state),
             PlanNodeChild::LocationPlacement(location, node) => {
@@ -1193,6 +1194,17 @@ impl<'a> PlanNodeChild<'a> {
             PlanNodeChild::LocationPlacement(location, node) => {
                 gather_data.desires_location(*location, node.as_location(), context, state)
             }
+        }
+    }
+
+    fn ready_for_placement(
+        &self,
+        context: &mut NodeContext,
+        state: &PlannerState
+    ) -> bool {
+        match self {
+            PlanNodeChild::GlobalPlacement(node) => node.ready_for_placement(context, state),
+            PlanNodeChild::LocationPlacement(_, node) => node.ready_for_placement(context, state)
         }
     }
 
@@ -1675,7 +1687,9 @@ pub trait PlanGlobalPlacementNode: PlanGlobalNode {
 
     fn get_score(&self, context: &mut NodeContext, state: &PlannerState) -> Option<f32>;
 
-    fn place(&self, context: &mut NodeContext, state: &mut PlannerState);
+    fn ready_for_placement(&self, context: &mut NodeContext, state: &PlannerState) -> bool;
+
+    fn place(&self, context: &mut NodeContext, state: &mut PlannerState) -> Result<(), ()>;
 }
 
 pub trait PlanGlobalExpansionNode: PlanGlobalNode {
@@ -1725,7 +1739,9 @@ pub trait PlanLocationPlacementNode: PlanLocationNode {
         state: &PlannerState,
     ) -> Option<f32>;
 
-    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState);
+    fn ready_for_placement(&self, context: &mut NodeContext, state: &PlannerState) -> bool;
+
+    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) -> Result<(), ()>;
 }
 
 pub trait PlanPlacementExpansionNode: PlanLocationNode {
@@ -2112,7 +2128,11 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
         (self.scorer)(position, context, state)
     }
 
-    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) {
+    fn ready_for_placement(&self, _context: &mut NodeContext, _state: &PlannerState) -> bool {
+        true
+    }
+
+    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) -> Result<(), ()> {
         let mut min_rcl = None;
 
         for placement in self
@@ -2126,7 +2146,7 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
             {
                 let rcl = state
                     .get_rcl_for_next_structure(placement.structure_type)
-                    .unwrap();
+                    .ok_or(())?;
 
                 min_rcl = min_rcl.map(|r| if rcl < r { rcl } else { r }).or(Some(rcl));
 
@@ -2160,6 +2180,8 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
                 );
             }
         }
+
+        Ok(())
     }
 }
 
@@ -2460,6 +2482,7 @@ pub struct MinCutWallsPlanNode {
     pub placement_phase: PlacementPhase,
     pub must_place: bool,
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
+    pub ready_for_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
     pub rcl_override: Option<u8>,
 }
 
@@ -2527,8 +2550,12 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
         Some(0.0)
     }
 
-    fn place(&self, context: &mut NodeContext, state: &mut PlannerState) {
-        let mut builder = <rs_graph::linkedlistgraph::LinkedListGraph::<u32> as Buildable>::Builder::with_capacities(2* 50 * 50 + 2, 2* 50 * 50 + 2);
+    fn ready_for_placement(&self, context: &mut NodeContext, state: &PlannerState) -> bool {
+        (self.ready_for_placement)(context, state)
+    }
+
+    fn place(&self, context: &mut NodeContext, state: &mut PlannerState) -> Result<(), ()> {
+        let mut builder = LinkedListGraph::<u32>::new_builder();
 
         let top_nodes = builder.add_nodes(50 * 50);
         let bottom_nodes = builder.add_nodes(50 * 50);
@@ -2569,6 +2596,9 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
         for (location, room_item) in room_items.iter() {
             let should_protect = match room_item.structure_type {
                 StructureType::KeeperLair | StructureType::Portal | StructureType::InvaderCore => {
+                    false
+                }
+                StructureType::Wall | StructureType::Rampart => {
                     false
                 }
                 _ => true,
@@ -2772,6 +2802,9 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
                 }
             }
         }
+
+        //TODO: Validate min cut actually succeeded...
+        Ok(())
     }
 }
 
@@ -2792,6 +2825,7 @@ pub struct FloodFillPlanNode<'a> {
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
     pub scorer:
         fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+    pub validator: fn(context: &mut NodeContext, state: &PlannerState) -> Result<(), ()>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -2906,7 +2940,12 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
         (self.scorer)(position, context, state)
     }
 
-    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) {
+    fn ready_for_placement(&self, _context: &mut NodeContext, _state: &PlannerState) -> bool {
+        //TODO: Provide customization option?
+        true
+    }
+
+    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) -> Result<(), ()> {
         let mut locations: HashSet<_> = self
             .start_offsets
             .into_iter()
@@ -2998,25 +3037,26 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
                 locations = std::mem::replace(&mut next_locations, HashSet::new());
             }
 
-            candidates.sort_by(|(_, _, max_score_a), (_, _, max_score_b)| {
-                max_score_a.partial_cmp(&max_score_b).unwrap()
-            });
-
             while (candidates.len() >= self.minimum_candidates
                 || locations.is_empty()
                 || current_expansion >= self.maximum_expansion)
                 && !candidates.is_empty()
             {
+                candidates.sort_by(|(_, _, max_score_a), (_, _, max_score_b)| {
+                    max_score_a.partial_cmp(&max_score_b).unwrap()
+                });
+
                 let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
 
                 let mut best_candidate = None;
 
                 let mut to_remove = Vec::new();
 
-                for (index, (location, node, max_score)) in candidates.iter().enumerate().rev() {
+                for (index, (location, node, max_score)) in candidates.iter_mut().enumerate().rev() {
                     let can_exceed_best_score = best_candidate
+                        .as_ref()
                         .map(|(best_score, _)| best_score)
-                        .and_then(|best_score| max_score.map(|max| max > best_score))
+                        .and_then(|best_score| max_score.map(|max| max > *best_score))
                         .unwrap_or(true);
 
                     if can_exceed_best_score {
@@ -3031,23 +3071,34 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
 
                         if can_place {
                             if let Some(score) = node.get_score(*location, context, state) {
+                                //TODO: Only allow modifying score if hint is set that score can only get worse?
+                                *max_score = Some(score);
+
                                 if best_candidate
-                                    .map(|(best_score, _)| score > best_score)
+                                    .as_ref()
+                                    .map(|(best_score, _)| score > *best_score)
                                     .unwrap_or(true)
                                 {
-                                    best_candidate = Some((score, (location, node)));
+                                    best_candidate = Some((score, (*location, node, index)));
                                 }
                             } else {
                                 to_remove.push(index);
                             }
                         } else {
+                            //TODO: Should consider pushing to next LOD?
+                            
                             to_remove.push(index);
                         }
                     }
                 }
 
-                if let Some((_, (location, node))) = best_candidate {
-                    node.place(*location, context, state);
+                if let Some((_, (location, node, index))) = best_candidate {
+                    node.place(location, context, state)?;
+
+                    match to_remove.binary_search_by(|probe| probe.cmp(&index).reverse()) {
+                        Ok(_) => {}
+                        Err(pos) => to_remove.insert(pos, index)
+                    }
                 }
 
                 for index in to_remove.into_iter() {
@@ -3055,6 +3106,8 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
                 }
             }
         }
+
+        (self.validator)(context, state)
     }
 }
 
@@ -3176,7 +3229,12 @@ impl<'a> PlanLocationPlacementNode for FirstPossiblePlanNode<'a> {
             .next()
     }
 
-    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) {
+    fn ready_for_placement(&self, _context: &mut NodeContext, _state: &PlannerState) -> bool {
+        //TODO: Provide customization option?
+        true
+    }
+
+    fn place(&self, position: PlanLocation, context: &mut NodeContext, state: &mut PlannerState) -> Result<(), ()> {
         let mut current_gather_data = PlanGatherChildrenData::<'a>::new();
 
         for option in self.options.iter() {
@@ -3189,11 +3247,14 @@ impl<'a> PlanLocationPlacementNode for FirstPossiblePlanNode<'a> {
                 )
                 && current_gather_data.insert_location_placement(position, *option)
             {
-                option.place(position, context, state);
+                //TODO: Should this allow recovery?
+                option.place(position, context, state)?;
 
                 break;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -3259,45 +3320,14 @@ impl<'a> PlanLocationNode for NearestToStructureExpansionPlanNode<'a> {
             gather_data.mark_visited_location(position, self);
 
             if self.child.desires_placement(context, state, gather_data) {
-                let mut offset_locations = state.with_structure_distances(
-                    self.structure_type,
-                    context.terrain(),
-                    |storage_distance| {
-                        if let Some((storage_distance, _max_distance)) = storage_distance {
-                            self.allowed_offsets
-                                .iter()
-                                .filter_map(|offset| {
-                                    let offset_location = position + *offset;
-
-                                    let distance = storage_distance.get(
-                                        offset_location.x() as usize,
-                                        offset_location.y() as usize,
-                                    );
-
-                                    if let Some(distance) = distance {
-                                        Some((offset_location, *distance))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect()
-                        } else {
-                            Vec::new()
-                        }
-                    },
-                );
-
-                offset_locations.sort_by_key(|(_, distance)| *distance);
-
-                for (offset_location, _) in offset_locations.iter() {
-                    if self
-                        .child
-                        .desires_location(*offset_location, context, state, gather_data)
-                    {
-                        self.child
-                            .insert_or_expand(*offset_location, context, state, gather_data);
-
-                        return;
+                if let Some((path, _distance)) = state.get_pathfinding_distance_to_structure(position, self.structure_type, 1, context.terrain()) {
+                    if let Some(offset_location) = path.get(1) {
+                        if self
+                            .child
+                            .desires_location(*offset_location, context, state, gather_data)
+                        {
+                            self.child.insert_or_expand(*offset_location, context, state, gather_data);
+                        }    
                     }
                 }
             }
@@ -3637,17 +3667,26 @@ where
                 {
                     let mut to_place = Vec::new();
 
-                    while !entry.children.is_empty() {
-                        let current_phase =
-                            to_place.last().map(|c: &PlanNodeChild| c.placement_phase());
+                    let mut current_phase = None;
+
+                    let placeable_children = entry
+                        .children
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .filter(|(_, c)| c.ready_for_placement(&mut context, state));
+
+                    for (index, child) in placeable_children {                      
                         let matches_phase = current_phase
-                            .map(|phase| phase == entry.children.last().unwrap().placement_phase())
+                            .map(|phase| phase == child.placement_phase())
                             .unwrap_or(true);
 
-                        if entry.children.last().unwrap().must_place() && matches_phase {
-                            to_place.push(entry.children.pop().unwrap());
+                        if child.must_place() && matches_phase {
+                            to_place.push(index);
+
+                            current_phase = Some(child.placement_phase());
                         } else if to_place.is_empty() {
-                            to_place.push(entry.children.pop().unwrap());
+                            to_place.push(index);
 
                             break;
                         } else {
@@ -3655,29 +3694,43 @@ where
                         }
                     }
 
-                    processed_entries += to_place.len();
+                    if !to_place.is_empty() {
+                        processed_entries += to_place.len();                
+                        
+                        let to_place_nodes = to_place.iter().map(|index| entry.children.remove(*index));
 
-                    state.push_layer();
+                        state.push_layer();
 
-                    let mut validate_location = false;
+                        let mut validate_location = false;
 
-                    while let Some(child) = to_place.pop() {
-                        if validate_location
-                            && !child.desires_location(
-                                &mut context,
-                                state,
-                                &mut PlanGatherChildrenData::new(),
-                            )
-                        {
-                            entry_failed = true;
-                            break;
+                        for child in to_place_nodes {
+                            if validate_location
+                                && !child.desires_location(
+                                    &mut context,
+                                    state,
+                                    &mut PlanGatherChildrenData::new(),
+                                )
+                            {
+                                entry_failed = true;
+
+                                break;
+                            }
+
+                            match child.place(&mut context, state) {
+                                Ok(()) => {},
+                                Err(()) => {
+                                    entry_failed = true;
+
+                                    break;
+                                }
+                            }
+
+                            placed_nodes.push(child);
+
+                            validate_location = true;
                         }
-
-                        child.place(&mut context, state);
-
-                        placed_nodes.push(child);
-
-                        validate_location = true;
+                    } else {
+                        entry_failed = true;
                     }
 
                     if !entry_failed {

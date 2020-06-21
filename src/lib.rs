@@ -3,6 +3,7 @@ pub mod layout;
 pub mod location;
 pub mod planner;
 pub mod scoring;
+pub mod utility;
 
 #[cfg(feature = "shim")]
 pub mod shim;
