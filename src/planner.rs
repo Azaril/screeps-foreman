@@ -965,44 +965,80 @@ pub struct Plan {
     state: PlanState,
 }
 
+#[derive(Ord, PartialOrd, Eq, PartialEq)]
+enum PlanPriority {
+    High,
+    Medium,
+    Low
+}
+
+fn get_plan_priority(item: &RoomItem) -> PlanPriority {
+    match item.structure_type() {
+        StructureType::Spawn => PlanPriority::High,
+        StructureType::Storage | StructureType::Container | StructureType::Tower => PlanPriority::Medium,
+        _ => PlanPriority::Low,
+    }
+}
+
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl Plan {
     #[cfg(not(feature = "shim"))]
-    pub fn execute(&self, room: &Room) {
+    pub fn execute(&self, room: &Room, max_placements: u32) {
         let room_name = room.name();
         let room_level = room.controller().map(|c| c.level()).unwrap_or(0);
 
-        for (loc, entries) in self.state.iter() {
-            for entry in entries.iter() {
-                let required_rcl = entry.required_rcl.into();
+        let mut current_placements = 0;
 
-                if entry.structure_type == StructureType::Storage && room_level < required_rcl {
-                    room.create_construction_site(
+        let mut ordered_entries: Vec<_> = self.state
+            .iter()
+            .flat_map(|(loc, entries)| entries.iter().map( move|item| (loc, item)))
+            .collect();
+
+        ordered_entries.sort_by_key(|(_, item)| get_plan_priority(item));
+
+        for (loc, entry) in ordered_entries.iter() {
+            let required_rcl = entry.required_rcl.into();
+
+            if entry.structure_type == StructureType::Storage && room_level < required_rcl {
+                match room.create_construction_site(
+                    &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                    StructureType::Container,
+                ) {
+                    ReturnCode::Ok => {
+                        current_placements += 1;
+                    }
+                    _ => {}
+                }
+            } else if room_level >= required_rcl {
+                if entry.structure_type == StructureType::Storage {
+                    let structures = room.look_for_at(
+                        look::STRUCTURES,
                         &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
-                        StructureType::Container,
                     );
-                } else if room_level >= required_rcl {
-                    if entry.structure_type == StructureType::Storage {
-                        let structures = room.look_for_at(
-                            look::STRUCTURES,
-                            &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
-                        );
 
-                        for structure in &structures {
-                            match structure {
-                                Structure::Container(container) => {
-                                    container.destroy();
-                                }
-                                _ => {}
+                    for structure in &structures {
+                        match structure {
+                            Structure::Container(container) => {
+                                container.destroy();
                             }
+                            _ => {}
                         }
                     }
-
-                    room.create_construction_site(
-                        &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
-                        entry.structure_type,
-                    );
                 }
+
+                match room.create_construction_site(
+                    &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                    entry.structure_type,
+                ) {
+                    ReturnCode::Ok => {
+                        current_placements += 1;
+                    }
+                    _ => {}
+                }
+            }
+
+            if current_placements >= max_placements {
+                return;
             }
         }
     }
