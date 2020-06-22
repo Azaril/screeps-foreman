@@ -294,11 +294,60 @@ fn source_distance_score(state: &PlannerState, context: &mut NodeContext) -> Vec
     let mut scores = Vec::new();
 
     for (storage_distance, max_distance) in source_distances.iter() {
-        let source_score = 1.0 - (*storage_distance as f32 / *max_distance as f32);
+        let source_score = 1.0 - (*storage_distance as f32 / *max_distance as f32).powf(3.0);
 
         scores.push(StateScore {
             score: source_score,
             weight: 2.0,
+        })
+    }
+
+    scores
+}
+
+fn controller_distance_score(state: &PlannerState, context: &mut NodeContext) -> Vec<StateScore> {
+    let controllers = context.controllers().to_vec();
+
+    let controller_distances = state.with_structure_distances(
+        StructureType::Storage,
+        context.terrain(),
+        |storage_distances| {
+            if let Some((storage_distances, max_distance)) = storage_distances {
+                controllers
+                    .iter()
+                    .filter_map(|source_location| {
+                        ONE_OFFSET_SQUARE
+                            .iter()
+                            .filter_map(|offset| {
+                                let offset_location = *source_location + offset;
+
+                                if offset_location.in_room_bounds() {
+                                    *storage_distances.get(
+                                        offset_location.x() as usize,
+                                        offset_location.y() as usize,
+                                    )
+                                } else {
+                                    None
+                                }
+                            })
+                            .min_by_key(|distance| *distance)
+                            .map(|distance| (distance, max_distance))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        },
+    );
+
+    let mut scores = Vec::new();
+
+    for (storage_distance, max_distance) in controller_distances.iter() {
+        let controller_score = 1.0 - (*storage_distance as f32 / *max_distance as f32).powf(3.0);
+
+        scores.push(StateScore {
+            score: controller_score,
+            weight: 0.75,
         })
     }
 
@@ -332,15 +381,17 @@ fn source_distance_balance_score(
             .map(|(storage_distance, _)| storage_distance)
             .combinations(2)
             .map(|items| {
-                let delta = ((*items[0] as i32) - (*items[1] as i32)).abs();
+                let delta = ((*items[0] as i32) - (*items[1] as i32)).abs() as f32;
 
-                1.0 - ((delta as f32) / (ROOM_WIDTH.max(ROOM_HEIGHT) as f32))
+                let score = 1.0 - ((delta as f32) / (ROOM_WIDTH.max(ROOM_HEIGHT) as f32)).max(0.0).min(1.0).powf(3.0);
+
+                score
             })
             .product();
 
         scores.push(StateScore {
             score: source_delta_score,
-            weight: 0.25,
+            weight: 0.5,
         })
     }
 
@@ -404,6 +455,7 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
         Validators needed:
         - Link is within pathable range 2 of storage.
         - Terminal is within pathable range 2 of storage.
+        - Has reachable controllers.
     */
 
     //
@@ -438,6 +490,7 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
     let scorers = [
         source_distance_score,
         source_distance_balance_score,
+        controller_distance_score,        
         extension_distance_score,
     ];
 

@@ -1888,15 +1888,25 @@ where
         for pos in &eval_locations {
             let current = data.get_mut(pos.x() as usize, pos.y() as usize);
 
-            if current.is_none() {
-                *current = Some(current_distance);
+            let allow_expand = if current.is_none() {
+                if is_passable(*pos) {
+                    *current = Some(current_distance);
 
+                    true                    
+                } else {
+                    current_distance == 0
+                }
+            } else {
+                false
+            };
+
+            if allow_expand {
                 for offset in ONE_OFFSET_SQUARE {
                     let next_location = *pos + offset;
                     if next_location.in_room_bounds() {
                         let terrain =
                             terrain.get_xy(next_location.x() as u8, next_location.y() as u8);
-                        if !terrain.contains(TerrainFlags::WALL) && is_passable(next_location) {
+                        if !terrain.contains(TerrainFlags::WALL) {
                             to_apply.insert(next_location);
                         }
                     }
