@@ -135,10 +135,10 @@ const EXTENSION: &FixedPlanNode = &FixedPlanNode {
     must_place: false,
     placements: &[
         placement(StructureType::Extension, 0, 0),
-        optional_placement(StructureType::Road, -1, -0),
-        optional_placement(StructureType::Road, 0, 1),
-        optional_placement(StructureType::Road, 1, 0),
-        optional_placement(StructureType::Road, 0, -1),
+        placement(StructureType::Road, -1, -0).optional(),
+        placement(StructureType::Road, 0, 1).optional(),
+        placement(StructureType::Road, 1, 0).optional(),
+        placement(StructureType::Road, 0, -1).optional(),
     ],
     child: PlanNodeStorage::Empty,
     desires_placement: |_, state| {
@@ -329,7 +329,7 @@ const EXTRACTOR_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(
     id: uuid::Uuid::from_u128(0x414d_d6b4_93f8_4539_81c5_89b5_1311_2a4fu128),
     placement_phase: PlacementPhase::Normal,
     must_place: true,
-    placements: &[placement(StructureType::Container, 0, 0)],
+    placements: &[placement(StructureType::Container, 0, 0).rcl(6)],
     child: PlanNodeStorage::Empty,
     desires_placement: |_context, state| state.get_count(StructureType::Container) < 5,
     desires_location: |location, _context, state| {

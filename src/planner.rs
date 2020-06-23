@@ -296,7 +296,7 @@ fn get_min_rcl_for_power_spawn(count: u8) -> Option<u8> {
     }
 }
 
-fn get_min_rcl_for_extractor(count: u8) -> Option<u8> {
+pub fn get_min_rcl_for_extractor(count: u8) -> Option<u8> {
     match count {
         0 => Some(0),
         1..=1 => Some(6),
@@ -965,18 +965,25 @@ pub struct Plan {
     state: PlanState,
 }
 
-#[derive(Ord, PartialOrd, Eq, PartialEq)]
-enum PlanPriority {
-    High,
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Ord, PartialOrd)]
+pub enum BuildPriority {
+    VeryLow,
+    Low,
     Medium,
-    Low
+    High,
+    Critical,
 }
 
-fn get_plan_priority(item: &RoomItem) -> PlanPriority {
-    match item.structure_type() {
-        StructureType::Spawn => PlanPriority::High,
-        StructureType::Storage | StructureType::Container | StructureType::Tower => PlanPriority::Medium,
-        _ => PlanPriority::Low,
+pub fn get_build_priority(structure: StructureType) -> BuildPriority {
+    match structure {
+        StructureType::Spawn => BuildPriority::Critical,
+        StructureType::Storage => BuildPriority::High,
+        StructureType::Container => BuildPriority::High,
+        StructureType::Tower => BuildPriority::High,
+        StructureType::Wall => BuildPriority::Low,
+        StructureType::Rampart => BuildPriority::Low,
+        StructureType::Road => BuildPriority::VeryLow,
+        _ => BuildPriority::Medium,
     }
 }
 
@@ -994,9 +1001,9 @@ impl Plan {
             .flat_map(|(loc, entries)| entries.iter().map( move|item| (loc, item)))
             .collect();
 
-        ordered_entries.sort_by_key(|(_, item)| get_plan_priority(item));
+        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type()));
 
-        for (loc, entry) in ordered_entries.iter() {
+        for (loc, entry) in ordered_entries.iter().rev() {
             let required_rcl = entry.required_rcl.into();
 
             if entry.structure_type == StructureType::Storage && room_level < required_rcl {
@@ -1993,13 +2000,23 @@ impl<'a> PlanGlobalExpansionNode for PlaceAwayFromWallsNode<'a> {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct PlanPlacement {
     structure_type: StructureType,
     offset: PlanLocation,
     optional: bool,
+    rcl_override: Option<u8>,
 }
 
 impl PlanPlacement {
+    pub const fn optional(self) -> Self {
+        Self { optional: true, ..self }
+    }
+
+    pub const fn rcl(self, rcl: u8) -> Self {
+        Self { rcl_override: Some(rcl), ..self }
+    }
+
     fn can_place(
         &self,
         plan_location: PlanLocation,
@@ -2045,14 +2062,7 @@ pub const fn placement(structure_type: StructureType, x: i8, y: i8) -> PlanPlace
         structure_type,
         offset: PlanLocation { x, y },
         optional: false,
-    }
-}
-
-pub const fn optional_placement(structure_type: StructureType, x: i8, y: i8) -> PlanPlacement {
-    PlanPlacement {
-        structure_type,
-        offset: PlanLocation { x, y },
-        optional: true,
+        rcl_override: None,
     }
 }
 
@@ -2190,9 +2200,14 @@ impl<'a> PlanLocationPlacementNode for FixedPlanNode<'a> {
 
             if !placement.optional || placement.can_place(placement_location.into(), context, state)
             {
-                let rcl = state
-                    .get_rcl_for_next_structure(placement.structure_type)
-                    .ok_or(())?;
+                let rcl = if let Some(rcl) = placement.rcl_override {
+                    rcl
+                } else {
+                    //TODO: This isn't quite right - should find the lowest unused RCL.
+                    state
+                        .get_rcl_for_next_structure(placement.structure_type)
+                        .ok_or(())?
+                };
 
                 min_rcl = min_rcl.map(|r| if rcl < r { rcl } else { r }).or(Some(rcl));
 
