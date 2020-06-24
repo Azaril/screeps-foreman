@@ -3321,13 +3321,41 @@ impl<'a> PlanLocationPlacementNode for FirstPossiblePlanNode<'a> {
 
 pub struct NearestToStructureExpansionPlanNode<'a> {
     pub structure_type: StructureType,
-    pub allowed_offsets: &'a [(i8, i8)],
     pub child: PlanNodeStorage<'a>,
+    pub path_distance: u32,
     pub desires_placement: fn(context: &mut NodeContext, state: &PlannerState) -> bool,
     pub desires_location:
         fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> bool,
     pub scorer:
         fn(position: PlanLocation, context: &mut NodeContext, state: &PlannerState) -> Option<f32>,
+}
+
+impl<'a> NearestToStructureExpansionPlanNode<'a> {
+    fn get_child_locations<'s>(
+        &'s self,
+        position: PlanLocation,
+        context: &mut NodeContext,
+        state: &PlannerState,
+        gather_data: &mut PlanGatherChildrenData<'s>,
+    ) -> Vec<PlanLocation> {
+        let mut result = Vec::new();
+
+        if self.child.desires_placement(context, state, gather_data) {
+            if let Some((path, _distance)) = state.get_pathfinding_distance_to_structure(position, self.structure_type, 1, context.terrain()) {
+                for offset_location in path.iter() {
+                    let distance = offset_location.distance_to(position) as u32;
+
+                    if distance == self.path_distance {   
+                        result.push(*offset_location);
+                    } else if distance > self.path_distance {
+                        break;
+                    }
+                }
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -3359,15 +3387,19 @@ impl<'a> PlanLocationNode for NearestToStructureExpansionPlanNode<'a> {
 
     fn desires_location<'s>(
         &'s self,
-        position: PlanLocation,
-        context: &mut NodeContext,
-        state: &PlannerState,
-        gather_data: &mut PlanGatherChildrenData<'s>,
+        _position: PlanLocation,
+        _context: &mut NodeContext,
+        _state: &PlannerState,
+        _gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
+        true
+
+        /*
         self.allowed_offsets.iter().any(|offset| {
             self.child
                 .desires_location(position + *offset, context, state, gather_data)
         })
+        */
     }
 
     fn get_children<'s>(
@@ -3382,13 +3414,21 @@ impl<'a> PlanLocationNode for NearestToStructureExpansionPlanNode<'a> {
 
             if self.child.desires_placement(context, state, gather_data) {
                 if let Some((path, _distance)) = state.get_pathfinding_distance_to_structure(position, self.structure_type, 1, context.terrain()) {
-                    if let Some(offset_location) = path.get(1) {
-                        if self
-                            .child
-                            .desires_location(*offset_location, context, state, gather_data)
-                        {
-                            self.child.insert_or_expand(*offset_location, context, state, gather_data);
-                        }    
+                    for offset_location in path.iter() {
+                        let distance = offset_location.distance_to(position) as u32;
+
+                        if distance == self.path_distance {   
+                            if self
+                                .child
+                                .desires_location(*offset_location, context, state, gather_data)
+                            {
+                                self.child.insert_or_expand(*offset_location, context, state, gather_data);
+
+                                break;
+                            }    
+                        } else if distance > self.path_distance {
+                            break;
+                        }
                     }
                 }
             }

@@ -212,7 +212,7 @@ const CONTROLLER_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement
     placements: &[placement(StructureType::Container, 0, 0)],
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
         structure_type: StructureType::Storage,
-        allowed_offsets: ONE_OFFSET_SQUARE,
+        path_distance: 1,
         child: CONTROLLER_LINK,
         desires_placement: |_, _| true,
         desires_location: |_, _, _| true,
@@ -225,10 +225,10 @@ const CONTROLLER_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement
 
         controller_locations
             .iter()
-            .filter(|&controller_location| controller_location.distance_to(location.into()) <= 1)
+            .filter(|&controller_location| controller_location.distance_to(location.into()) <= 2)
             .any(|controller_location| {
                 !container_locations.iter().any(|container_location| {
-                    controller_location.distance_to(container_location.into()) <= 1
+                    controller_location.distance_to(container_location.into()) <= 2
                 })
             })
     },
@@ -240,7 +240,7 @@ const CONTROLLERS: PlanNodeStorage = PlanNodeStorage::GlobalExpansion(&FixedLoca
     locations: |context| context.controllers().to_vec(),
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
         structure_type: StructureType::Storage,
-        allowed_offsets: ONE_OFFSET_SQUARE,
+        path_distance: 2,
         child: CONTROLLER_CONTAINER,
         desires_placement: |_, _| true,
         desires_location: |_, _, _| true,
@@ -279,7 +279,7 @@ const SOURCE_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&Fi
     placements: &[placement(StructureType::Container, 0, 0)],
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
         structure_type: StructureType::Storage,
-        allowed_offsets: ONE_OFFSET_SQUARE,
+        path_distance: 1,
         child: SOURCE_LINK,
         desires_placement: |_, _| true,
         desires_location: |_, _, _| true,
@@ -317,7 +317,7 @@ const SOURCES: PlanNodeStorage = PlanNodeStorage::GlobalExpansion(&FixedLocation
     locations: |context| context.sources().to_vec(),
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
         structure_type: StructureType::Storage,
-        allowed_offsets: ONE_OFFSET_SQUARE,
+        path_distance: 1,
         child: SOURCE_CONTAINER,
         desires_placement: |_, _| true,
         desires_location: |_, _, _| true,
@@ -366,7 +366,7 @@ const EXTRACTOR: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPlan
     placements: &[placement(StructureType::Extractor, 0, 0)],
     child: PlanNodeStorage::LocationExpansion(&NearestToStructureExpansionPlanNode {
         structure_type: StructureType::Storage,
-        allowed_offsets: ONE_OFFSET_SQUARE,
+        path_distance: 1,
         child: EXTRACTOR_CONTAINER,
         desires_placement: |_, _| true,
         desires_location: |_, _, _| true,
@@ -443,6 +443,30 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
         placement(StructureType::Road, 0, 0),
         placement(StructureType::Road, 0, 1),
         placement(StructureType::Road, 1, 1),
+
+        placement(StructureType::Road, -5, 1).optional(),
+        placement(StructureType::Road, -4, 0).optional(),
+        placement(StructureType::Road, -3, -1).optional(),
+        placement(StructureType::Road, -2, -2).optional(),
+        placement(StructureType::Road, -1, -3).optional(),
+        placement(StructureType::Road, 0, -4).optional(),
+        placement(StructureType::Road, 1, -4).optional(),
+
+        placement(StructureType::Road, 2, -3).optional(),
+        placement(StructureType::Road, 3, -2).optional(),
+
+
+        placement(StructureType::Road, -1, 5).optional(),
+        placement(StructureType::Road, 0, 4).optional(),
+        placement(StructureType::Road, 1, 3).optional(),
+        placement(StructureType::Road, 2, 2).optional(),
+        placement(StructureType::Road, 3, 1).optional(),
+        placement(StructureType::Road, 4, 0).optional(),
+        placement(StructureType::Road, 4, -1).optional(),
+
+        placement(StructureType::Road, -4, 2).optional(),
+        placement(StructureType::Road, -3, 3).optional(),
+        placement(StructureType::Road, -2, 4).optional(),
     ],
     child: PlanNodeStorage::LocationExpansion(&MultiPlacementExpansionNode {
         children: &[
@@ -467,7 +491,7 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
                     (-2, -2),
                 ],
                 maximum_expansion: 20,
-                minimum_candidates: 20,
+                minimum_candidates: 50,
                 levels: &[
                     FloodFillPlanNodeLevel {
                         offsets: &[(0, 0)],

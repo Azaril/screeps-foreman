@@ -122,7 +122,7 @@ fn has_controller_containers(state: &PlannerState, context: &mut NodeContext) ->
 
     for (controller_index, controller_location) in controller_locations.iter().enumerate() {
         if let Some(index) = container_locations.iter().position(|container_location| {
-            controller_location.distance_to(container_location.into()) <= 1
+            controller_location.distance_to(container_location.into()) <= 2
         }) {
             container_locations.remove(index);
             matched_controllers.push(controller_index)
@@ -151,8 +151,8 @@ fn has_controller_links(state: &PlannerState, context: &mut NodeContext) -> bool
                 container_locations
                     .iter()
                     .filter(|&container_location| {
-                        controller_locations.iter().any(|source_location| {
-                            source_location.distance_to(container_location.into()) <= 1
+                        controller_locations.iter().any(|controller_location| {
+                            controller_location.distance_to(container_location.into()) <= 2
                         })
                     })
                     .filter(|&container_location| {
