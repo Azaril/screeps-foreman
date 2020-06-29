@@ -1050,6 +1050,53 @@ impl Plan {
         }
     }
 
+    #[cfg(not(feature = "shim"))]
+    pub fn cleanup(&self, structures: &[Structure]) {
+        let mut invalid_structures = Vec::new();
+        let mut valid_structures = Vec::new();
+
+        for structure in structures {
+            let structure_pos = structure.pos();
+            let structure_type = structure.structure_type();
+
+            let is_valid = self.state
+                .get(&Location::from_coords(structure_pos.x(), structure_pos.y()))
+                .iter()
+                .flat_map(|v| *v)
+                .any(|r| r.structure_type() == structure_type);
+            
+            if is_valid {
+                valid_structures.push(structure);
+            } else {
+                invalid_structures.push(structure);
+            }
+        }
+
+        let has_valid_spawn = valid_structures
+            .iter()
+            .any(|s| s.structure_type() == StructureType::Spawn);
+
+        for structure in invalid_structures {
+            let can_destroy = match structure.structure_type() {
+                StructureType::Spawn => has_valid_spawn,
+                _ => true
+            };
+
+            let has_store = structure
+                .as_has_store()
+                .map(|s| {
+                    let resources = s.store_types();
+
+                    resources.iter().any(|r| s.store_of(*r) > 0)
+                })
+                .unwrap_or(false);
+
+            if can_destroy && !has_store {
+                structure.destroy();
+            }
+        }
+    }
+
     pub fn visualize<V>(&self, visualizer: &mut V)
     where
         V: RoomVisualizer,
