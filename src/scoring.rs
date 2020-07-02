@@ -1,6 +1,6 @@
 use super::planner::*;
-use super::*;
 use super::utility::*;
+use super::*;
 use crate::constants::*;
 use itertools::*;
 use std::convert::*;
@@ -383,7 +383,11 @@ fn source_distance_balance_score(
             .map(|items| {
                 let delta = ((*items[0] as i32) - (*items[1] as i32)).abs() as f32;
 
-                let score = 1.0 - ((delta as f32) / (ROOM_WIDTH.max(ROOM_HEIGHT) as f32)).max(0.0).min(1.0).powf(3.0);
+                let score = 1.0
+                    - ((delta as f32) / (ROOM_WIDTH.max(ROOM_HEIGHT) as f32))
+                        .max(0.0)
+                        .min(1.0)
+                        .powf(3.0);
 
                 score
             })
@@ -490,7 +494,7 @@ pub fn score_state(state: &PlannerState, context: &mut NodeContext) -> Option<f3
     let scorers = [
         source_distance_score,
         source_distance_balance_score,
-        controller_distance_score,        
+        controller_distance_score,
         extension_distance_score,
     ];
 

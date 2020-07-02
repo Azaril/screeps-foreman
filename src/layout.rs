@@ -443,7 +443,6 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
         placement(StructureType::Road, 0, 0),
         placement(StructureType::Road, 0, 1),
         placement(StructureType::Road, 1, 1),
-
         placement(StructureType::Road, -5, 1).optional(),
         placement(StructureType::Road, -4, 0).optional(),
         placement(StructureType::Road, -3, -1).optional(),
@@ -451,11 +450,8 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
         placement(StructureType::Road, -1, -3).optional(),
         placement(StructureType::Road, 0, -4).optional(),
         placement(StructureType::Road, 1, -4).optional(),
-
         placement(StructureType::Road, 2, -3).optional(),
         placement(StructureType::Road, 3, -2).optional(),
-
-
         placement(StructureType::Road, -1, 5).optional(),
         placement(StructureType::Road, 0, 4).optional(),
         placement(StructureType::Road, 1, 3).optional(),
@@ -463,7 +459,6 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
         placement(StructureType::Road, 3, 1).optional(),
         placement(StructureType::Road, 4, 0).optional(),
         placement(StructureType::Road, 4, -1).optional(),
-
         placement(StructureType::Road, -4, 2).optional(),
         placement(StructureType::Road, -3, 3).optional(),
         placement(StructureType::Road, -2, 4).optional(),
