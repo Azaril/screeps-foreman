@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::collections::hash_map::*;
 use std::collections::*;
 use std::convert::*;
+use fnv::*;
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-1, -1),
@@ -340,29 +341,29 @@ fn get_min_rcl_for_factory(count: u8) -> Option<u8> {
     }
 }
 
-pub type PlanState = HashMap<Location, Vec<RoomItem>>;
+pub type PlanState = FnvHashMap<Location, Vec<RoomItem>>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PlannerStateLayer {
     #[serde(rename = "d")]
-    data: HashMap<Location, Vec<RoomItem>>,
+    data: FnvHashMap<Location, Vec<RoomItem>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PlannerStateCacheLayer {
     #[serde(rename = "s")]
-    structure_counts: HashMap<StructureType, u8>,
+    structure_counts: FnvHashMap<StructureType, u8>,
     #[serde(skip)]
-    data_cache: RefCell<HashMap<Location, Option<Vec<RoomItem>>>>,
+    data_cache: RefCell<FnvHashMap<Location, Option<Vec<RoomItem>>>>,
     #[serde(skip)]
-    structure_distances: RefCell<HashMap<StructureType, (RoomDataArray<Option<u32>>, u32)>>,
+    structure_distances: RefCell<FnvHashMap<StructureType, (RoomDataArray<Option<u32>>, u32)>>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl PlannerStateLayer {
     pub fn new() -> PlannerStateLayer {
         PlannerStateLayer {
-            data: HashMap::new(),
+            data: FnvHashMap::default(),
         }
     }
 
@@ -395,7 +396,7 @@ impl PlannerStateLayer {
         self.data.iter().map(|(location, _)| location)
     }
 
-    pub fn complete(self) -> HashMap<Location, Vec<RoomItem>> {
+    pub fn complete(self) -> FnvHashMap<Location, Vec<RoomItem>> {
         self.data
     }
 
@@ -414,11 +415,11 @@ impl PlannerStateLayer {
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl PlannerStateCacheLayer {
-    pub fn new(structure_counts: HashMap<StructureType, u8>) -> PlannerStateCacheLayer {
+    pub fn new(structure_counts: FnvHashMap<StructureType, u8>) -> PlannerStateCacheLayer {
         PlannerStateCacheLayer {
             structure_counts,
-            data_cache: RefCell::new(HashMap::new()),
-            structure_distances: RefCell::new(HashMap::new()),
+            data_cache: RefCell::new(FnvHashMap::default()),
+            structure_distances: RefCell::new(FnvHashMap::default()),
         }
     }
 
@@ -477,7 +478,7 @@ impl PlannerState {
     pub fn new() -> PlannerState {
         PlannerState {
             layers: vec![PlannerStateLayer::new()],
-            cache_layers: vec![PlannerStateCacheLayer::new(HashMap::new())],
+            cache_layers: vec![PlannerStateCacheLayer::new(FnvHashMap::default())],
         }
     }
 
@@ -486,7 +487,7 @@ impl PlannerState {
             .cache_layers
             .last()
             .map(|cache_layer| cache_layer.structure_counts.clone())
-            .unwrap_or_else(|| HashMap::new());
+            .unwrap_or_else(|| FnvHashMap::default());
 
         self.layers.push(PlannerStateLayer::new());
         self.cache_layers.push(PlannerStateCacheLayer::new(counts));
@@ -552,7 +553,7 @@ impl PlannerState {
             .layers
             .iter()
             .flat_map(|l| l.get_locations(structure_type))
-            .collect::<HashSet<_>>();
+            .collect::<FnvHashSet<_>>();
 
         locations
             .into_iter()
@@ -566,7 +567,7 @@ impl PlannerState {
             .layers
             .iter()
             .flat_map(|l| l.get_all_locations())
-            .collect::<HashSet<_>>();
+            .collect::<FnvHashSet<_>>();
 
         locations
             .into_iter()
@@ -697,7 +698,7 @@ impl PlannerState {
         if let Some((_top_non_empty_layer, top_non_empty_cache_layer)) = layer {
             let generator = || {
                 let mut data: RoomDataArray<Option<u32>> = RoomDataArray::new(None);
-                let mut to_apply: HashSet<PlanLocation> = HashSet::new();
+                let mut to_apply: FnvHashSet<PlanLocation> = FnvHashSet::default();
 
                 let structure_locations = self.get_locations(structure_type);
 
@@ -746,7 +747,7 @@ impl PlannerState {
     }
 
     pub fn snapshot(&self) -> PlanState {
-        let mut state = PlanState::new();
+        let mut state = PlanState::default();
 
         for layer in &self.layers {
             for (location, item) in layer.data.iter() {
@@ -1307,7 +1308,7 @@ impl<'a> PlanNodeChild<'a> {
         }
     }
 
-    fn to_serialized(&self, index_lookup: &HashMap<uuid::Uuid, usize>) -> SerializedPlanNodeChild {
+    fn to_serialized(&self, index_lookup: &FnvHashMap<uuid::Uuid, usize>) -> SerializedPlanNodeChild {
         match self {
             PlanNodeChild::GlobalPlacement(node) => {
                 let node_type = 0;
@@ -1386,16 +1387,16 @@ impl SerializedPlanNodeChild {
 }
 
 pub struct PlanGatherNodesData<'b> {
-    global_placement_nodes: HashMap<uuid::Uuid, &'b dyn PlanGlobalPlacementNode>,
-    location_placement_nodes: HashMap<uuid::Uuid, &'b dyn PlanLocationPlacementNode>,
+    global_placement_nodes: FnvHashMap<uuid::Uuid, &'b dyn PlanGlobalPlacementNode>,
+    location_placement_nodes: FnvHashMap<uuid::Uuid, &'b dyn PlanLocationPlacementNode>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
 impl<'b> PlanGatherNodesData<'b> {
     pub fn new<'a>() -> PlanGatherNodesData<'a> {
         PlanGatherNodesData {
-            global_placement_nodes: HashMap::new(),
-            location_placement_nodes: HashMap::new(),
+            global_placement_nodes: FnvHashMap::default(),
+            location_placement_nodes: FnvHashMap::default(),
         }
     }
 
@@ -1495,7 +1496,7 @@ impl<'s> PlanGatherChildrenLocationData<'s> {
 pub struct PlanGatherChildrenData<'a> {
     desires_placement_cache: Vec<(&'a dyn PlanBaseNode, bool)>,
     global_nodes: PlanGatherChildrenGlobalData<'a>,
-    location_nodes: HashMap<PlanLocation, PlanGatherChildrenLocationData<'a>>,
+    location_nodes: FnvHashMap<PlanLocation, PlanGatherChildrenLocationData<'a>>,
 }
 
 #[cfg_attr(feature = "profile", screeps_timing_annotate::timing)]
@@ -1507,7 +1508,7 @@ impl<'a> PlanGatherChildrenData<'a> {
                 visited: Vec::new(),
                 inserted: Vec::new(),
             },
-            location_nodes: HashMap::new(),
+            location_nodes: FnvHashMap::default(),
         }
     }
 
@@ -1686,7 +1687,7 @@ impl<'d> NodeContext<'d> {
     pub fn wall_distance(&mut self) -> &RoomDataArray<Option<u32>> {
         if self.wall_distance.is_none() {
             let mut data: RoomDataArray<Option<u32>> = RoomDataArray::new(None);
-            let mut to_apply: HashSet<PlanLocation> = HashSet::new();
+            let mut to_apply: FnvHashSet<PlanLocation> = FnvHashSet::default();
 
             let terrain = self.terrain();
 
@@ -1717,7 +1718,7 @@ impl<'d> NodeContext<'d> {
 
             for source in sources.iter() {
                 let mut data: RoomDataArray<Option<u32>> = RoomDataArray::new(None);
-                let mut to_apply: HashSet<PlanLocation> = HashSet::new();
+                let mut to_apply: FnvHashSet<PlanLocation> = FnvHashSet::default();
 
                 to_apply.insert(*source);
 
@@ -1930,7 +1931,7 @@ impl<'a> PlanNodeStorage<'a> {
 }
 
 fn flood_fill_distance<F>(
-    initial_seeds: HashSet<PlanLocation>,
+    initial_seeds: FnvHashSet<PlanLocation>,
     terrain: &FastRoomTerrain,
     data: &mut RoomDataArray<Option<u32>>,
     is_passable: F,
@@ -1942,7 +1943,7 @@ where
     let mut current_distance: u32 = 0;
 
     loop {
-        let eval_locations = std::mem::replace(&mut to_apply, HashSet::new());
+        let eval_locations = std::mem::replace(&mut to_apply, FnvHashSet::default());
 
         for pos in &eval_locations {
             let current = data.get_mut(pos.x() as usize, pos.y() as usize);
@@ -2689,10 +2690,10 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
         let sink = builder.add_node();
 
         // unbuildable is for tiles near room exits that can't be ramparted
-        let mut unbuildable = HashSet::new();
+        let mut unbuildable = FnvHashSet::default();
 
         // and exits is for the exit tiles themselves, for later attachment to the sink
-        let mut exits = HashSet::new();
+        let mut exits = FnvHashSet::default();
 
         for exit_position in context.terrain().get_exits() {
             unbuildable.insert(exit_position);
@@ -2712,7 +2713,7 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
         }
 
         // protected is for tiles that will hook to the source
-        let mut protected = HashSet::new();
+        let mut protected = FnvHashSet::default();
 
         let room_items = state.get_all();
 
@@ -2849,8 +2850,8 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
         // to find which tiles we want ramparts in, we want to find out which tiles have their
         // top node in the set but their bottom node not in the set, meaning we cut the edge between
         // the top and bottom for that tile.
-        let mut top_cut = HashSet::new();
-        let mut bot_cut = HashSet::new();
+        let mut top_cut = FnvHashSet::default();
+        let mut bot_cut = FnvHashSet::default();
 
         for node in mincut {
             let node_id = network.node_id(node);
@@ -2870,7 +2871,7 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
         let terrain = context.terrain();
 
-        let mut candidates: HashSet<_> = top_cut.difference(&bot_cut).collect();
+        let mut candidates: FnvHashSet<_> = top_cut.difference(&bot_cut).collect();
 
         while !candidates.is_empty() {
             let mut to_process: Vec<(Location, StructureType)> = Vec::new();
@@ -2996,14 +2997,14 @@ impl<'a> PlanLocationNode for FloodFillPlanNode<'a> {
         state: &PlannerState,
         gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
-        let mut locations: HashSet<_> = self
+        let mut locations: FnvHashSet<_> = self
             .start_offsets
             .into_iter()
             .map(|o| position + o)
             .collect();
 
         for lod in self.levels.iter() {
-            let mut expanded_locations: HashSet<PlanLocation> = locations
+            let mut expanded_locations: FnvHashSet<PlanLocation> = locations
                 .iter()
                 .flat_map(|&location| lod.offsets.iter().map(move |offset| location + *offset))
                 .collect();
@@ -3015,7 +3016,7 @@ impl<'a> PlanLocationNode for FloodFillPlanNode<'a> {
                 return true;
             }
 
-            locations = std::mem::replace(&mut expanded_locations, HashSet::new());
+            locations = std::mem::replace(&mut expanded_locations, FnvHashSet::default());
         }
 
         false
@@ -3078,13 +3079,13 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
         context: &mut NodeContext,
         state: &mut PlannerState,
     ) -> Result<(), ()> {
-        let mut locations: HashSet<_> = self
+        let mut locations: FnvHashSet<_> = self
             .start_offsets
             .into_iter()
             .map(|o| position + o)
             .collect();
-        let mut next_locations: HashSet<_> = HashSet::new();
-        let mut visited_locations: HashSet<_> = HashSet::new();
+        let mut next_locations: FnvHashSet<_> = FnvHashSet::default();
+        let mut visited_locations: FnvHashSet<_> = FnvHashSet::default();
 
         let mut current_expansion = 0;
 
@@ -3166,7 +3167,7 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
 
                 current_expansion += 1;
 
-                locations = std::mem::replace(&mut next_locations, HashSet::new());
+                locations = std::mem::replace(&mut next_locations, FnvHashSet::default());
             }
 
             while (candidates.len() >= self.minimum_candidates
@@ -3666,7 +3667,7 @@ struct EvaluationStackEntry<'b> {
 impl<'b> EvaluationStackEntry<'b> {
     pub fn to_serialized(
         &self,
-        index_lookup: &HashMap<uuid::Uuid, usize>,
+        index_lookup: &FnvHashMap<uuid::Uuid, usize>,
     ) -> SerializedEvaluationStackEntry {
         SerializedEvaluationStackEntry {
             children: self
@@ -3714,7 +3715,7 @@ impl SerializedEvaluationStack {
         entries: &Vec<EvaluationStackEntry>,
     ) -> SerializedEvaluationStack {
         let identifiers: Vec<_> = gathered_nodes.get_all_ids();
-        let index_lookup: HashMap<_, _> = identifiers
+        let index_lookup: FnvHashMap<_, _> = identifiers
             .iter()
             .enumerate()
             .map(|(index, id)| (*id, index))
