@@ -977,9 +977,16 @@ pub enum BuildPriority {
     Critical,
 }
 
-pub fn get_build_priority(structure: StructureType) -> BuildPriority {
+pub fn get_build_priority(structure: StructureType, rcl: u32) -> BuildPriority {
     match structure {
         StructureType::Spawn => BuildPriority::Critical,
+        StructureType::Extension => {
+            if rcl <= 2 {
+                BuildPriority::Critical
+            } else {
+                BuildPriority::Medium
+            }
+        }
         StructureType::Storage => BuildPriority::High,
         StructureType::Container => BuildPriority::High,
         StructureType::Tower => BuildPriority::High,
@@ -1005,7 +1012,7 @@ impl Plan {
             .flat_map(|(loc, entries)| entries.iter().map(move |item| (loc, item)))
             .collect();
 
-        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type()));
+        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level));
 
         for (loc, entry) in ordered_entries.iter().rev() {
             let required_rcl = entry.required_rcl.into();
