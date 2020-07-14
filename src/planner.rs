@@ -1075,7 +1075,7 @@ impl Plan {
                 .get(&Location::from_coords(structure_pos.x(), structure_pos.y()))
                 .iter()
                 .flat_map(|v| *v)
-                .any(|r| r.structure_type() == structure_type);
+                .any(|r| r.structure_type() == structure_type || (r.structure_type() == StructureType::Storage && structure_type == StructureType::Container));
 
             if is_valid {
                 valid_structures.push(structure);

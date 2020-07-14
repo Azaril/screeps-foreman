@@ -485,8 +485,8 @@ const BUNKER_CORE: PlanNodeStorage = PlanNodeStorage::LocationPlacement(&FixedPl
                     (0, -4),
                     (-2, -2),
                 ],
-                maximum_expansion: 20,
-                minimum_candidates: 50,
+                maximum_expansion: 5,
+                minimum_candidates: 20,
                 levels: &[
                     FloodFillPlanNodeLevel {
                         offsets: &[(0, 0)],
