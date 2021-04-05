@@ -4,7 +4,8 @@ version = "0.1.0"
 authors = ["William Archbell <william@archbell.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
 
 [features]
 default = ["screeps-game-api"]
@@ -20,7 +21,7 @@ uuid = { version = "0.8", features = ["serde"] }
 pathfinding = { version = "2.0" }
 rs-graph = "0.19"
 fnv = "1.0"
-screeps-game-api = { version = "0.8", optional = true }
+screeps-game-api = { version = "0.10", optional = true }
 screeps-cache = { git = "https://github.com/Azaril/screeps-cache" }
 screeps-timing = { git = "https://github.com/Azaril/screeps-timing", optional = true }
 screeps-timing-annotate = { git = "https://github.com/Azaril/screeps-timing-annotate", optional = true }

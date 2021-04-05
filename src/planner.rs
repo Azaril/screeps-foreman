@@ -12,10 +12,10 @@ use rs_graph::traits::*;
 use rs_graph::{Buildable, Builder};
 use serde::*;
 use std::cell::RefCell;
-use std::collections::hash_map::*;
-use std::collections::*;
 use std::convert::*;
 use fnv::*;
+use std::collections::HashSet;
+use std::collections::hash_map::Entry;
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-1, -1),
@@ -1012,15 +1012,17 @@ impl Plan {
             .flat_map(|(loc, entries)| entries.iter().map(move |item| (loc, item)))
             .collect();
 
-        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level));
+        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level as u32));
 
         for (loc, entry) in ordered_entries.iter().rev() {
             let required_rcl = entry.required_rcl.into();
 
             if entry.structure_type == StructureType::Storage && room_level < required_rcl {
                 match room.create_construction_site(
-                    &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                    loc.x(),
+                    loc.y(),
                     StructureType::Container,
+                    None
                 ) {
                     ReturnCode::Ok => {
                         current_placements += 1;
@@ -1031,12 +1033,12 @@ impl Plan {
                 if entry.structure_type == StructureType::Storage {
                     let structures = room.look_for_at(
                         look::STRUCTURES,
-                        &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                        &RoomPosition::new(loc.x(), loc.y(), &room_name),
                     );
 
                     for structure in &structures {
                         match structure {
-                            Structure::Container(container) => {
+                            StructureObject::StructureContainer(container) => {
                                 container.destroy();
                             }
                             _ => {}
@@ -1045,8 +1047,10 @@ impl Plan {
                 }
 
                 match room.create_construction_site(
-                    &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                    loc.x(), 
+                    loc.y(),
                     entry.structure_type,
+                    None
                 ) {
                     ReturnCode::Ok => {
                         current_placements += 1;
@@ -1062,7 +1066,7 @@ impl Plan {
     }
 
     #[cfg(not(feature = "shim"))]
-    pub fn cleanup(&self, structures: &[Structure]) {
+    pub fn cleanup(&self, structures: &[StructureObject]) {
         let mut invalid_structures = Vec::new();
         let mut valid_structures = Vec::new();
 
@@ -1072,7 +1076,7 @@ impl Plan {
 
             let is_valid = self
                 .state
-                .get(&Location::from_coords(structure_pos.x(), structure_pos.y()))
+                .get(&Location::from_coords(structure_pos.x() as u32, structure_pos.y() as u32))
                 .iter()
                 .flat_map(|v| *v)
                 .any(|r| r.structure_type() == structure_type || (r.structure_type() == StructureType::Storage && structure_type == StructureType::Container));
@@ -1097,9 +1101,10 @@ impl Plan {
             let has_store = structure
                 .as_has_store()
                 .map(|s| {
-                    let resources = s.store_types();
+                    let store = s.store();
+                    let resources = store.store_types();
 
-                    resources.iter().any(|r| s.store_of(*r) > 0)
+                    resources.iter().any(|r| store.get(*r).unwrap_or(0) > 0)
                 })
                 .unwrap_or(false);
 
@@ -3552,9 +3557,8 @@ pub struct FastRoomTerrain {
 bitflags! {
     pub struct TerrainFlags: u8 {
         const NONE = 0;
-        const WALL = TERRAIN_MASK_WALL;
-        const SWAMP = TERRAIN_MASK_SWAMP;
-        const LAVA = TERRAIN_MASK_LAVA;
+        const WALL = Terrain::Wall as u8;
+        const SWAMP = Terrain::Swamp as u8;
     }
 }
 
