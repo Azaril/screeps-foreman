@@ -203,7 +203,7 @@ impl TryFrom<PlanLocation> for Location {
 
     fn try_from(value: PlanLocation) -> Result<Self, Self::Error> {
         if value.in_room_bounds() {
-            Ok(Location::from_coords(value.x() as u32, value.y() as u32))
+            Ok(Location::from_coords(value.x() as u8, value.y() as u8))
         } else {
             Err(())
         }
@@ -215,7 +215,7 @@ impl TryFrom<&PlanLocation> for Location {
 
     fn try_from(value: &PlanLocation) -> Result<Self, Self::Error> {
         if value.in_room_bounds() {
-            Ok(Location::from_coords(value.x() as u32, value.y() as u32))
+            Ok(Location::from_coords(value.x() as u8, value.y() as u8))
         } else {
             Err(())
         }
@@ -816,7 +816,7 @@ impl PlanLocation {
 
     pub fn as_location(&self) -> Option<Location> {
         if self.in_room_bounds() {
-            Some(Location::from_coords(self.x as u32, self.y as u32))
+            Some(Location::from_coords(self.x as u8, self.y as u8))
         } else {
             None
         }
@@ -824,7 +824,7 @@ impl PlanLocation {
 
     pub fn as_build_location(&self) -> Option<Location> {
         if self.in_room_build_bounds() {
-            Some(Location::from_coords(self.x as u32, self.y as u32))
+            Some(Location::from_coords(self.x as u8, self.y as u8))
         } else {
             None
         }
@@ -1076,7 +1076,7 @@ impl Plan {
 
             let is_valid = self
                 .state
-                .get(&Location::from_coords(structure_pos.x() as u32, structure_pos.y() as u32))
+                .get(&Location::from_coords(structure_pos.x().into(), structure_pos.y().into()))
                 .iter()
                 .flat_map(|v| *v)
                 .any(|r| r.structure_type() == structure_type || (r.structure_type() == StructureType::Storage && structure_type == StructureType::Container));
@@ -2783,7 +2783,7 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
                     // bottom hooks to surrounding tiles as long as they're not protected tiles
                     // protected tiles top hooks to source
                     // edge tiles' bottom hooks to the sink
-                    let current_location = Location::from_coords(x, y);
+                    let current_location = Location::from_coords(x as u8, y as u8);
 
                     let terrain_mask = terrain.get(&current_location);
 
@@ -2890,8 +2890,7 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
             let candidate_node = **candidates.iter().next().expect("Expected seed");
 
-            let location =
-                Location::from_coords((candidate_node % 50) as u32, (candidate_node / 50) as u32);
+            let location = Location::from_coords((candidate_node % 50) as u8, (candidate_node / 50) as u8);
 
             to_process.push((location, StructureType::Rampart));
 
@@ -3572,7 +3571,7 @@ enum ExitSide {
 pub struct ExitIterator<'a> {
     terrain: &'a FastRoomTerrain,
     side: Option<ExitSide>,
-    index: u32,
+    index: u8,
 }
 
 impl<'a> Iterator for ExitIterator<'a> {
@@ -3586,7 +3585,7 @@ impl<'a> Iterator for ExitIterator<'a> {
 
                     self.index += 1;
 
-                    if self.index >= ROOM_WIDTH as u32 - 1 {
+                    if self.index >= ROOM_WIDTH - 1 {
                         self.index = 0;
                         self.side = Some(ExitSide::Right)
                     }
@@ -3594,11 +3593,11 @@ impl<'a> Iterator for ExitIterator<'a> {
                     res
                 }
                 Some(ExitSide::Right) => {
-                    let res = Location::from_coords(ROOM_WIDTH as u32 - 1, self.index);
+                    let res = Location::from_coords(ROOM_WIDTH - 1, self.index);
 
                     self.index += 1;
 
-                    if self.index >= ROOM_HEIGHT as u32 - 1 {
+                    if self.index >= ROOM_HEIGHT - 1 {
                         self.index = 0;
                         self.side = Some(ExitSide::Bottom)
                     }
@@ -3607,13 +3606,13 @@ impl<'a> Iterator for ExitIterator<'a> {
                 }
                 Some(ExitSide::Bottom) => {
                     let res = Location::from_coords(
-                        (ROOM_WIDTH as u32 - 1) - self.index,
-                        ROOM_HEIGHT as u32 - 1,
+                        (ROOM_WIDTH - 1) - self.index,
+                        ROOM_HEIGHT - 1,
                     );
 
                     self.index += 1;
 
-                    if self.index >= ROOM_WIDTH as u32 - 1 {
+                    if self.index >= ROOM_WIDTH - 1 {
                         self.index = 0;
                         self.side = Some(ExitSide::Left)
                     }
@@ -3621,11 +3620,11 @@ impl<'a> Iterator for ExitIterator<'a> {
                     res
                 }
                 Some(ExitSide::Left) => {
-                    let res = Location::from_coords(0, (ROOM_HEIGHT as u32 - 1) - self.index);
+                    let res = Location::from_coords(0, (ROOM_HEIGHT - 1) - self.index);
 
                     self.index += 1;
 
-                    if self.index >= ROOM_HEIGHT as u32 - 1 {
+                    if self.index >= ROOM_HEIGHT - 1 {
                         self.index = 0;
                         self.side = None;
                     }

@@ -7,9 +7,12 @@ pub struct Location {
 }
 
 impl Location {
-    pub fn from_coords(x: u32, y: u32) -> Self {
+    pub fn from_coords(x: u8, y: u8) -> Self {
+        let x = x as u16;
+        let y = y as u16;
+
         Location {
-            packed: ((x << 8) | y) as u16,
+            packed: ((x << 8) | y),
         }
     }
 
