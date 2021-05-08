@@ -1,8 +1,23 @@
 use serde::*;
 
-pub const TERRAIN_MASK_WALL: u8 = 1;
-pub const TERRAIN_MASK_SWAMP: u8 = 2;
-pub const TERRAIN_MASK_LAVA: u8 = 4;
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Hash,
+)]
+pub enum Terrain {
+    // There's no constant for plains, but the absense of a terrain value indicates a plain
+    Plain = 0,
+    // TERRAIN_MASK_WALL
+    Wall = 1,
+    // TERRAIN_MASK_SWAMP
+    Swamp = 2,
+    /* TERRAIN_MASK_LAVA, unimplemented in game
+     * Lava = 4, */
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum StructureType {
