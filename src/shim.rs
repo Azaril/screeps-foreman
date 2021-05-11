@@ -1,13 +1,6 @@
 use serde::*;
 
-#[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    Copy,
-    Hash,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Terrain {
     // There's no constant for plains, but the absense of a terrain value indicates a plain
     Plain = 0,

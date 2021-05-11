@@ -4,6 +4,7 @@ use super::visual::*;
 use super::*;
 use crate::constants::*;
 use bitflags::*;
+use fnv::*;
 use log::*;
 use pathfinding::directed::astar::*;
 use rs_graph::linkedlistgraph::*;
@@ -12,10 +13,9 @@ use rs_graph::traits::*;
 use rs_graph::{Buildable, Builder};
 use serde::*;
 use std::cell::RefCell;
-use std::convert::*;
-use fnv::*;
-use std::collections::HashSet;
 use std::collections::hash_map::Entry;
+use std::collections::HashSet;
+use std::convert::*;
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-1, -1),
@@ -1012,7 +1012,8 @@ impl Plan {
             .flat_map(|(loc, entries)| entries.iter().map(move |item| (loc, item)))
             .collect();
 
-        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level));
+        ordered_entries
+            .sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level));
 
         for (loc, entry) in ordered_entries.iter().rev() {
             let required_rcl = entry.required_rcl.into();
@@ -1022,7 +1023,7 @@ impl Plan {
                     loc.x(),
                     loc.y(),
                     StructureType::Container,
-                    None
+                    None,
                 ) {
                     ReturnCode::Ok => {
                         current_placements += 1;
@@ -1046,12 +1047,7 @@ impl Plan {
                     }
                 }
 
-                match room.create_construction_site(
-                    loc.x(), 
-                    loc.y(),
-                    entry.structure_type,
-                    None
-                ) {
+                match room.create_construction_site(loc.x(), loc.y(), entry.structure_type, None) {
                     ReturnCode::Ok => {
                         current_placements += 1;
                     }
@@ -1076,10 +1072,17 @@ impl Plan {
 
             let is_valid = self
                 .state
-                .get(&Location::from_coords(structure_pos.x().into(), structure_pos.y().into()))
+                .get(&Location::from_coords(
+                    structure_pos.x().into(),
+                    structure_pos.y().into(),
+                ))
                 .iter()
                 .flat_map(|v| *v)
-                .any(|r| r.structure_type() == structure_type || (r.structure_type() == StructureType::Storage && structure_type == StructureType::Container));
+                .any(|r| {
+                    r.structure_type() == structure_type
+                        || (r.structure_type() == StructureType::Storage
+                            && structure_type == StructureType::Container)
+                });
 
             if is_valid {
                 valid_structures.push(structure);
@@ -1320,7 +1323,10 @@ impl<'a> PlanNodeChild<'a> {
         }
     }
 
-    fn to_serialized(&self, index_lookup: &FnvHashMap<uuid::Uuid, usize>) -> SerializedPlanNodeChild {
+    fn to_serialized(
+        &self,
+        index_lookup: &FnvHashMap<uuid::Uuid, usize>,
+    ) -> SerializedPlanNodeChild {
         match self {
             PlanNodeChild::GlobalPlacement(node) => {
                 let node_type = 0;
@@ -2890,7 +2896,8 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
             let candidate_node = **candidates.iter().next().expect("Expected seed");
 
-            let location = Location::from_coords((candidate_node % 50) as u8, (candidate_node / 50) as u8);
+            let location =
+                Location::from_coords((candidate_node % 50) as u8, (candidate_node / 50) as u8);
 
             to_process.push((location, StructureType::Rampart));
 
@@ -3605,10 +3612,7 @@ impl<'a> Iterator for ExitIterator<'a> {
                     res
                 }
                 Some(ExitSide::Bottom) => {
-                    let res = Location::from_coords(
-                        (ROOM_WIDTH - 1) - self.index,
-                        ROOM_HEIGHT - 1,
-                    );
+                    let res = Location::from_coords((ROOM_WIDTH - 1) - self.index, ROOM_HEIGHT - 1);
 
                     self.index += 1;
 
