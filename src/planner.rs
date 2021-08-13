@@ -989,7 +989,9 @@ pub fn get_build_priority(structure: StructureType, rcl: u8) -> BuildPriority {
         }
         StructureType::Storage => BuildPriority::High,
         StructureType::Container => BuildPriority::High,
+        StructureType::Terminal => BuildPriority::High,
         StructureType::Tower => BuildPriority::High,
+        StructureType::Lab => BuildPriority::Low,
         StructureType::Wall => BuildPriority::Low,
         StructureType::Rampart => BuildPriority::Low,
         StructureType::Road => BuildPriority::VeryLow,
