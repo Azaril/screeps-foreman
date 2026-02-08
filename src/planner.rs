@@ -1012,17 +1012,18 @@ impl Plan {
             .flat_map(|(loc, entries)| entries.iter().map(move |item| (loc, item)))
             .collect();
 
-        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level));
+        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level as u32));
 
         for (loc, entry) in ordered_entries.iter().rev() {
             let required_rcl = entry.required_rcl.into();
 
             if entry.structure_type == StructureType::Storage && room_level < required_rcl {
                 match room.create_construction_site(
-                    &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                    loc.x(), loc.y(),
                     StructureType::Container,
+                    None,
                 ) {
-                    ReturnCode::Ok => {
+                    Ok(()) => {
                         current_placements += 1;
                     }
                     _ => {}
@@ -1031,13 +1032,13 @@ impl Plan {
                 if entry.structure_type == StructureType::Storage {
                     let structures = room.look_for_at(
                         look::STRUCTURES,
-                        &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                        &RoomPosition::new(loc.x(), loc.y(), room_name),
                     );
 
                     for structure in &structures {
                         match structure {
-                            Structure::Container(container) => {
-                                container.destroy();
+                            StructureObject::StructureContainer(container) => {
+                                let _ = container.destroy();
                             }
                             _ => {}
                         }
@@ -1045,10 +1046,11 @@ impl Plan {
                 }
 
                 match room.create_construction_site(
-                    &RoomPosition::new(loc.x() as u32, loc.y() as u32, room_name),
+                    loc.x(), loc.y(),
                     entry.structure_type,
+                    None,
                 ) {
-                    ReturnCode::Ok => {
+                    Ok(()) => {
                         current_placements += 1;
                     }
                     _ => {}
@@ -1062,7 +1064,7 @@ impl Plan {
     }
 
     #[cfg(not(feature = "shim"))]
-    pub fn cleanup(&self, structures: &[Structure]) {
+    pub fn cleanup(&self, structures: &[StructureObject]) {
         let mut invalid_structures = Vec::new();
         let mut valid_structures = Vec::new();
 
@@ -1072,7 +1074,7 @@ impl Plan {
 
             let is_valid = self
                 .state
-                .get(&Location::from_coords(structure_pos.x(), structure_pos.y()))
+                .get(&Location::from_coords(structure_pos.x().u8() as u32, structure_pos.y().u8() as u32))
                 .iter()
                 .flat_map(|v| *v)
                 .any(|r| r.structure_type() == structure_type || (r.structure_type() == StructureType::Storage && structure_type == StructureType::Container));
@@ -1097,14 +1099,12 @@ impl Plan {
             let has_store = structure
                 .as_has_store()
                 .map(|s| {
-                    let resources = s.store_types();
-
-                    resources.iter().any(|r| s.store_of(*r) > 0)
+                    s.store().get_used_capacity(None) > 0
                 })
                 .unwrap_or(false);
 
             if can_destroy && !has_store {
-                structure.destroy();
+                let _ = structure.destroy();
             }
         }
     }
@@ -2847,10 +2847,10 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
             }
         }
 
-        let network = builder.to_graph();
+        let network: LinkedListGraph<u32> = builder.into_graph();
 
         // get the big math guns in here
-        let (_, _, mincut) = dinic(&network, source, sink, |e| edge_weights[e.index()]);
+        let (_, _, mincut) = dinic(&network, source, sink, |e: Edge| edge_weights[e.index()]);
 
         // tracking for nodes of each 'type' that have been evaluated as 'part of the cut'
         // (here meaning, on the 'source' side of protected).
@@ -3552,9 +3552,9 @@ pub struct FastRoomTerrain {
 bitflags! {
     pub struct TerrainFlags: u8 {
         const NONE = 0;
-        const WALL = TERRAIN_MASK_WALL;
-        const SWAMP = TERRAIN_MASK_SWAMP;
-        const LAVA = TERRAIN_MASK_LAVA;
+        const WALL = 1;
+        const SWAMP = 2;
+        const LAVA = 4;
     }
 }
 
@@ -3657,7 +3657,7 @@ impl FastRoomTerrain {
         TerrainFlags::from_bits_truncate(self.buffer[index])
     }
 
-    pub fn get_exits(&self) -> ExitIterator {
+    pub fn get_exits(&self) -> ExitIterator<'_> {
         ExitIterator {
             terrain: self,
             side: Some(ExitSide::Top),
