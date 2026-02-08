@@ -225,7 +225,7 @@ const CONTROLLER_CONTAINER: PlanNodeStorage = PlanNodeStorage::LocationPlacement
 
         controller_locations
             .iter()
-            .filter(|&controller_location| controller_location.distance_to(location.into()) <= 2)
+            .filter(|&controller_location| controller_location.distance_to(location) <= 2)
             .any(|controller_location| {
                 !container_locations.iter().any(|container_location| {
                     controller_location.distance_to(container_location.into()) <= 2
