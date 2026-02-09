@@ -383,10 +383,9 @@ fn source_distance_balance_score(
             .map(|items| {
                 let delta = ((*items[0] as i32) - (*items[1] as i32)).abs();
 
-                1.0
-                    - ((delta as f32) / (ROOM_WIDTH.max(ROOM_HEIGHT) as f32))
-                        .clamp(0.0, 1.0)
-                        .powf(3.0)
+                1.0 - ((delta as f32) / (ROOM_WIDTH.max(ROOM_HEIGHT) as f32))
+                    .clamp(0.0, 1.0)
+                    .powf(3.0)
             })
             .product();
 

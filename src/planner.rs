@@ -4,6 +4,7 @@ use super::visual::*;
 use super::*;
 use crate::constants::*;
 use bitflags::*;
+use fnv::*;
 use log::*;
 use pathfinding::directed::astar::*;
 use rs_graph::linkedlistgraph::*;
@@ -15,7 +16,6 @@ use std::cell::RefCell;
 use std::collections::hash_map::*;
 use std::collections::*;
 use std::convert::*;
-use fnv::*;
 
 pub const ONE_OFFSET_SQUARE: &[(i8, i8)] = &[
     (-1, -1),
@@ -623,7 +623,12 @@ impl PlannerState {
                     .get(&location)
                     .iter()
                     .flat_map(|v| v.iter())
-                    .any(|item| !matches!(item.structure_type, StructureType::Road | StructureType::Container | StructureType::Rampart));
+                    .any(|item| {
+                        !matches!(
+                            item.structure_type,
+                            StructureType::Road | StructureType::Container | StructureType::Rampart
+                        )
+                    });
 
                 !blocked
             } else {
@@ -709,9 +714,18 @@ impl PlannerState {
 
                 let is_passable = |location: PlanLocation| {
                     if let Ok(location) = Location::try_from(location) {
-                        let blocked = self.get(&location).iter().flat_map(|v| v.iter()).any(
-                            |item| !matches!(item.structure_type, StructureType::Road | StructureType::Container | StructureType::Rampart),
-                        );
+                        let blocked =
+                            self.get(&location)
+                                .iter()
+                                .flat_map(|v| v.iter())
+                                .any(|item| {
+                                    !matches!(
+                                        item.structure_type,
+                                        StructureType::Road
+                                            | StructureType::Container
+                                            | StructureType::Rampart
+                                    )
+                                });
 
                         !blocked
                     } else {
@@ -1008,17 +1022,17 @@ impl Plan {
             .flat_map(|(loc, entries)| entries.iter().map(move |item| (loc, item)))
             .collect();
 
-        ordered_entries.sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level as u32));
+        ordered_entries
+            .sort_by_key(|(_, item)| get_build_priority(item.structure_type(), room_level as u32));
 
         for (loc, entry) in ordered_entries.iter().rev() {
             let required_rcl = entry.required_rcl;
 
             if entry.structure_type == StructureType::Storage && room_level < required_rcl {
-                if room.create_construction_site(
-                    loc.x(), loc.y(),
-                    StructureType::Container,
-                    None,
-                ).is_ok() {
+                if room
+                    .create_construction_site(loc.x(), loc.y(), StructureType::Container, None)
+                    .is_ok()
+                {
                     current_placements += 1;
                 }
             } else if room_level >= required_rcl {
@@ -1035,11 +1049,10 @@ impl Plan {
                     }
                 }
 
-                if room.create_construction_site(
-                    loc.x(), loc.y(),
-                    entry.structure_type,
-                    None,
-                ).is_ok() {
+                if room
+                    .create_construction_site(loc.x(), loc.y(), entry.structure_type, None)
+                    .is_ok()
+                {
                     current_placements += 1;
                 }
             }
@@ -1061,10 +1074,17 @@ impl Plan {
 
             let is_valid = self
                 .state
-                .get(&Location::from_coords(structure_pos.x().u8() as u32, structure_pos.y().u8() as u32))
+                .get(&Location::from_coords(
+                    structure_pos.x().u8() as u32,
+                    structure_pos.y().u8() as u32,
+                ))
                 .iter()
                 .flat_map(|v| *v)
-                .any(|r| r.structure_type() == structure_type || (r.structure_type() == StructureType::Storage && structure_type == StructureType::Container));
+                .any(|r| {
+                    r.structure_type() == structure_type
+                        || (r.structure_type() == StructureType::Storage
+                            && structure_type == StructureType::Container)
+                });
 
             if is_valid {
                 valid_structures.push(structure);
@@ -1085,9 +1105,7 @@ impl Plan {
 
             let has_store = structure
                 .as_has_store()
-                .map(|s| {
-                    s.store().get_used_capacity(None) > 0
-                })
+                .map(|s| s.store().get_used_capacity(None) > 0)
                 .unwrap_or(false);
 
             if can_destroy && !has_store {
@@ -1302,7 +1320,10 @@ impl<'a> PlanNodeChild<'a> {
         }
     }
 
-    fn to_serialized(&self, index_lookup: &FnvHashMap<uuid::Uuid, usize>) -> SerializedPlanNodeChild {
+    fn to_serialized(
+        &self,
+        index_lookup: &FnvHashMap<uuid::Uuid, usize>,
+    ) -> SerializedPlanNodeChild {
         match self {
             PlanNodeChild::GlobalPlacement(node) => {
                 let node_type = 0;
@@ -2714,7 +2735,14 @@ impl PlanGlobalPlacementNode for MinCutWallsPlanNode {
 
         // Protect all tiles we've put structures on so far
         for (location, room_item) in room_items.iter() {
-            let should_protect = !matches!(room_item.structure_type, StructureType::KeeperLair | StructureType::Portal | StructureType::InvaderCore | StructureType::Wall | StructureType::Rampart);
+            let should_protect = !matches!(
+                room_item.structure_type,
+                StructureType::KeeperLair
+                    | StructureType::Portal
+                    | StructureType::InvaderCore
+                    | StructureType::Wall
+                    | StructureType::Rampart
+            );
 
             if should_protect {
                 protected.insert(*location);
@@ -2986,11 +3014,8 @@ impl<'a> PlanLocationNode for FloodFillPlanNode<'a> {
         state: &PlannerState,
         gather_data: &mut PlanGatherChildrenData<'s>,
     ) -> bool {
-        let mut locations: FnvHashSet<_> = self
-            .start_offsets
-            .iter()
-            .map(|o| position + *o)
-            .collect();
+        let mut locations: FnvHashSet<_> =
+            self.start_offsets.iter().map(|o| position + *o).collect();
 
         for lod in self.levels.iter() {
             let mut expanded_locations: FnvHashSet<PlanLocation> = locations
@@ -3068,11 +3093,8 @@ impl<'a> PlanLocationPlacementNode for FloodFillPlanNode<'a> {
         context: &mut NodeContext,
         state: &mut PlannerState,
     ) -> Result<(), ()> {
-        let mut locations: FnvHashSet<_> = self
-            .start_offsets
-            .iter()
-            .map(|o| position + *o)
-            .collect();
+        let mut locations: FnvHashSet<_> =
+            self.start_offsets.iter().map(|o| position + *o).collect();
         let mut next_locations: FnvHashSet<_> = FnvHashSet::default();
         let mut visited_locations: FnvHashSet<_> = FnvHashSet::default();
 
