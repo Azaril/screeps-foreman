@@ -107,9 +107,9 @@ impl FinalizePhase {
             .unwrap_or_else(|| Location::from_coords(25, 25));
 
         steps.sort_by(|a, b| {
-            a.required_rcl
-                .cmp(&b.required_rcl)
-                .then_with(|| b.priority.cmp(&a.priority))
+            b.priority
+                .cmp(&a.priority)
+                .then_with(|| a.required_rcl.cmp(&b.required_rcl))
                 .then_with(|| {
                     let da = hub.distance_to(a.location);
                     let db = hub.distance_to(b.location);
