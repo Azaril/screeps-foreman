@@ -1,4 +1,5 @@
-//! TowerLayer: Places 6 towers to maximize minimum damage across attack positions.
+//! TowerLayer: Places 6 towers to maximize minimum damage across attack positions
+//! while preferring positions closer to the hub (storage) for faster refueling.
 //! Uses greedy placement -- deterministic given the current state.
 
 use crate::layer::*;
@@ -12,7 +13,15 @@ use crate::shim::*;
 #[cfg(not(feature = "shim"))]
 use screeps::*;
 
-/// Places 6 towers using greedy placement to maximize minimum damage.
+/// Weight for hub proximity in the composite tower score.
+/// Higher values bias towers closer to storage for faster refueling.
+const HUB_PROXIMITY_WEIGHT: f32 = 50.0;
+
+/// Maximum search radius for tower candidates (Chebyshev distance from hub).
+const MAX_TOWER_RADIUS: i16 = 6;
+
+/// Places 6 towers using greedy placement to maximize minimum damage
+/// while preferring positions closer to the hub for faster energy refueling.
 /// Deterministic (1 candidate) -- does not expand the search tree.
 pub struct TowerLayer;
 
@@ -83,7 +92,7 @@ impl PlacementLayer for TowerLayer {
                     2 => 7,
                     _ => 8,
                 };
-                if !terrain.is_wall(x, y) && !new_state.is_occupied(x, y) {
+                if !terrain.is_wall(x, y) && !new_state.is_occupied(x, y) && !has_road(&new_state, x, y) {
                     new_state.place_structure(x, y, StructureType::Tower, rcl);
                     new_state.add_to_landmark_set(
                         "towers",
@@ -99,25 +108,31 @@ impl PlacementLayer for TowerLayer {
 
         // Generate candidate tower positions near hub
         let mut tower_candidates: Vec<(u8, u8)> = Vec::new();
-        for dy in -6..=6i16 {
-            for dx in -6..=6i16 {
+        for dy in -MAX_TOWER_RADIUS..=MAX_TOWER_RADIUS {
+            for dx in -MAX_TOWER_RADIUS..=MAX_TOWER_RADIUS {
                 let x = ax + dx;
                 let y = ay + dy;
                 if (2..48).contains(&x) && (2..48).contains(&y) {
                     let ux = x as u8;
                     let uy = y as u8;
-                    if !terrain.is_wall(ux, uy) && !new_state.is_occupied(ux, uy) {
+                    if !terrain.is_wall(ux, uy)
+                        && !new_state.is_occupied(ux, uy)
+                        && !has_road(&new_state, ux, uy)
+                    {
                         tower_candidates.push((ux, uy));
                     }
                 }
             }
         }
 
+        // Maximum possible hub distance for normalization
+        let max_hub_dist = MAX_TOWER_RADIUS as f32;
+
         let tower_rcls = [3u8, 5, 7, 8, 8, 8];
 
         for &rcl in &tower_rcls {
             let mut best_pos = None;
-            let mut best_min_damage = 0u32;
+            let mut best_score = f32::NEG_INFINITY;
 
             for &(tx, ty) in &tower_candidates {
                 if tower_positions.contains(&(tx, ty)) {
@@ -139,8 +154,14 @@ impl PlacementLayer for TowerLayer {
                     }
                 }
 
-                if min_damage > best_min_damage {
-                    best_min_damage = min_damage;
+                // Composite score: damage coverage + hub proximity bonus.
+                // Closer to hub means faster energy refueling from storage.
+                let hub_dist = chebyshev_dist(tx, ty, hub.x(), hub.y()) as f32;
+                let proximity = 1.0 - (hub_dist / max_hub_dist).min(1.0);
+                let score = min_damage as f32 + HUB_PROXIMITY_WEIGHT * proximity;
+
+                if score > best_score {
+                    best_score = score;
                     best_pos = Some((tx, ty));
                 }
             }
@@ -157,6 +178,16 @@ impl PlacementLayer for TowerLayer {
 
         Some(Ok(new_state))
     }
+}
+
+/// Check if a tile already has a road placed on it.
+fn has_road(state: &PlacementState, x: u8, y: u8) -> bool {
+    let loc = Location::from_coords(x as u32, y as u32);
+    state
+        .structures
+        .get(&loc)
+        .map(|items| items.iter().any(|i| i.structure_type == StructureType::Road))
+        .unwrap_or(false)
 }
 
 fn chebyshev_dist(x1: u8, y1: u8, x2: u8, y2: u8) -> u32 {

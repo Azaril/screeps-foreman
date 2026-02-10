@@ -58,7 +58,7 @@ impl PlacementLayer for UtilityLayer {
                     if (2..48).contains(&x) && (2..48).contains(&y) {
                         let ux = x as u8;
                         let uy = y as u8;
-                        if !terrain.is_wall(ux, uy) && !new_state.is_occupied(ux, uy) {
+                        if !terrain.is_wall(ux, uy) && !new_state.has_any_structure(ux, uy) {
                             new_state.place_structure(ux, uy, StructureType::Observer, 8);
                             break 'observer;
                         }

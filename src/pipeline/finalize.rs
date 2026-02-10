@@ -1,5 +1,5 @@
 //! Finalization phase: converts the best PlacementState into a rich Plan
-//! with build order, score, and metadata.
+//! with build order, score, substitutions, and metadata.
 
 use crate::layer::PlacementState;
 use crate::location::*;
@@ -57,6 +57,7 @@ impl FinalizePhase {
     fn build_plan(&self) -> Plan {
         let score = self.placement_state.to_plan_score();
         let build_order = self.compute_build_order();
+        let substitutions = self.compute_substitutions();
 
         let hub_position = self
             .placement_state
@@ -84,6 +85,7 @@ impl FinalizePhase {
             road_network,
             build_order,
             score,
+            substitutions,
         }
     }
 
@@ -119,6 +121,55 @@ impl FinalizePhase {
         });
 
         steps
+    }
+
+    /// Generate RCL-dependent substitutions for structures that have cheaper
+    /// stand-ins at lower RCLs.
+    ///
+    /// Currently generates:
+    /// - Storage (RCL 4) → Container (RCL 1): A container is placed at the
+    ///   storage location from RCL 1 until RCL 4, when it is replaced by
+    ///   the actual storage structure.
+    fn compute_substitutions(&self) -> Vec<RclSubstitution> {
+        let mut substitutions = Vec::new();
+
+        for (loc, items) in &self.placement_state.structures {
+            for item in items {
+                if let Some(sub) = substitution_for(item.structure_type, item.required_rcl, *loc) {
+                    substitutions.push(sub);
+                }
+            }
+        }
+
+        // Sort substitutions by active_from_rcl so they are processed in order
+        substitutions.sort_by_key(|s| s.active_from_rcl);
+
+        substitutions
+    }
+}
+
+/// Return an RCL substitution for a structure type, if one applies.
+///
+/// This is the central place to define which structures have temporary
+/// stand-ins at lower RCLs. Add new substitution rules here as needed.
+fn substitution_for(
+    structure_type: StructureType,
+    required_rcl: u8,
+    location: Location,
+) -> Option<RclSubstitution> {
+    match structure_type {
+        // Storage (available at RCL 4): use a container from RCL 1 until
+        // storage becomes available. The container provides early resource
+        // storage at the hub position.
+        StructureType::Storage => Some(RclSubstitution {
+            location,
+            substitute: StructureType::Container,
+            target: StructureType::Storage,
+            active_from_rcl: 1,
+            replaced_at_rcl: required_rcl,
+            priority: BuildPriority::High,
+        }),
+        _ => None,
     }
 }
 

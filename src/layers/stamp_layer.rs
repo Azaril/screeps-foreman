@@ -101,11 +101,11 @@ impl PlacementLayer for StampLayer {
         }
 
         // Get filtered placements (required + optional that fit)
-        let placements = stamp.place_at_filtered(ux, uy, terrain, &state.occupied);
+        let placements = stamp.place_at_filtered(ux, uy, terrain, &state.structures);
 
-        // Check no overlap with existing non-road structures
-        let has_overlap = placements.iter().any(|(px, py, st, _)| {
-            *st != StructureType::Road && state.is_occupied(*px, *py)
+        // Check no overlap with existing structures (any type, including roads)
+        let has_overlap = placements.iter().any(|(px, py, _st, _)| {
+            state.has_any_structure(*px, *py)
         });
         if has_overlap {
             return Some(Err(()));
@@ -235,10 +235,10 @@ impl PlacementLayer for GreedyStampLayer {
                         }
 
                         let placements =
-                            stamp.place_at_filtered(ux, uy, terrain, &state.occupied);
+                            stamp.place_at_filtered(ux, uy, terrain, &state.structures);
 
-                        let has_overlap = placements.iter().any(|(px, py, st, _)| {
-                            *st != StructureType::Road && state.is_occupied(*px, *py)
+                        let has_overlap = placements.iter().any(|(px, py, _st, _)| {
+                            state.has_any_structure(*px, *py)
                         });
                         if has_overlap {
                             continue;

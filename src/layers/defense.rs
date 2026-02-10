@@ -108,42 +108,6 @@ impl PlacementLayer for DefenseLayer {
             new_state.add_to_landmark_set("ramparts", loc);
         }
 
-        // Add perimeter roads on rampart tiles (walls are impassable, no road needed)
-        let rampart_set: FnvHashSet<Location> = ramparts.iter().copied().collect();
-        for &rampart_loc in &ramparts {
-            for &(dx, dy) in &NEIGHBORS_8 {
-                let nx = rampart_loc.x() as i16 + dx as i16;
-                let ny = rampart_loc.y() as i16 + dy as i16;
-                if !(1..49).contains(&nx) || !(1..49).contains(&ny) {
-                    continue;
-                }
-                let loc = Location::from_coords(nx as u32, ny as u32);
-                if !rampart_set.contains(&loc)
-                    && !cut_set.contains(&loc)
-                    && !terrain.is_wall(nx as u8, ny as u8)
-                    && new_state.occupied.contains(&loc)
-                {
-                    let has_structure = new_state
-                        .structures
-                        .get(&loc)
-                        .map(|items| {
-                            items
-                                .iter()
-                                .any(|i| i.structure_type != StructureType::Road)
-                        })
-                        .unwrap_or(false);
-                    if !has_structure {
-                        new_state
-                            .structures
-                            .entry(rampart_loc)
-                            .or_default()
-                            .push(RoomItem::new(StructureType::Road, 1));
-                        break;
-                    }
-                }
-            }
-        }
-
         Some(Ok(new_state))
     }
 }

@@ -3,7 +3,7 @@ pub mod lab;
 pub mod extension;
 pub mod tower;
 
-use fnv::FnvHashSet;
+use fnv::FnvHashMap;
 
 #[cfg(feature = "shim")]
 use crate::shim::*;
@@ -56,12 +56,15 @@ impl Stamp {
     /// Get all placements that actually fit, filtering by terrain and occupancy.
     /// Required placements that don't fit are still included (caller should use `fits_at`
     /// first to verify the stamp is valid). Optional placements that don't fit are omitted.
+    ///
+    /// A tile is considered blocked if it has ANY existing structure (including roads).
+    /// This prevents roads from being placed on non-road structures and vice versa.
     pub fn place_at_filtered(
         &self,
         anchor_x: u8,
         anchor_y: u8,
         terrain: &crate::terrain::FastRoomTerrain,
-        occupied: &FnvHashSet<Location>,
+        structures: &FnvHashMap<Location, Vec<crate::plan::RoomItem>>,
     ) -> Vec<(u8, u8, StructureType, u8)> {
         self.placements
             .iter()
@@ -75,13 +78,12 @@ impl Stamp {
                 let uy = y as u8;
 
                 // Check if this placement fits
+                let loc = Location::from_coords(ux as u32, uy as u32);
                 let fits = if !(1..49).contains(&x) || !(1..49).contains(&y) {
-                    // Edge tiles: only roads allowed
-                    p.structure_type == StructureType::Road
+                    // Edge tiles: only roads allowed, and no existing structures
+                    p.structure_type == StructureType::Road && !structures.contains_key(&loc)
                 } else {
-                    !terrain.is_wall(ux, uy)
-                        && (p.structure_type == StructureType::Road
-                            || !occupied.contains(&Location::from_coords(ux as u32, uy as u32)))
+                    !terrain.is_wall(ux, uy) && !structures.contains_key(&loc)
                 };
 
                 if fits {

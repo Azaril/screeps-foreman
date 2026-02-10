@@ -1,10 +1,11 @@
 //! ReachabilityLayer: Validates that all non-road structures are reachable from the hub.
-//! Deterministic (1 candidate). Rejects the plan if any structure is unreachable.
+//! Deterministic (1 candidate). Rejects the plan if any structure is unreachable
+//! or requires an unreasonably long path (detour detection).
 
 use crate::layer::*;
 use crate::location::*;
 use crate::terrain::*;
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
 use log::*;
 use std::collections::VecDeque;
 
@@ -14,9 +15,18 @@ use crate::shim::*;
 #[cfg(not(feature = "shim"))]
 use screeps::*;
 
+/// Maximum allowed ratio of path distance to Chebyshev distance before a
+/// structure is considered to have an unreasonable detour.
+/// path_distance <= chebyshev_distance * DETOUR_RATIO + DETOUR_THRESHOLD
+const DETOUR_RATIO: u32 = 2;
+
+/// Additive threshold for detour detection (tiles).
+const DETOUR_THRESHOLD: u32 = 8;
+
 /// Validation-only layer that BFS flood-fills from the hub and verifies
 /// every non-road structure has at least one adjacent walkable tile that
-/// is reachable. Rejects the plan if any structure is unreachable.
+/// is reachable within a reasonable path distance. Rejects the plan if
+/// any structure is unreachable or requires an unreasonably long detour.
 pub struct ReachabilityLayer;
 
 impl PlacementLayer for ReachabilityLayer {
@@ -47,17 +57,17 @@ impl PlacementLayer for ReachabilityLayer {
             None => return Some(Err(())),
         };
 
-        // BFS flood-fill from hub across walkable tiles.
+        // BFS flood-fill from hub across walkable tiles, tracking distances.
         // A tile is walkable if:
         // - Not a wall
         // - Not occupied by a non-road structure, OR has a road on it
-        let mut reachable: FnvHashSet<Location> = FnvHashSet::default();
-        let mut queue: VecDeque<Location> = VecDeque::new();
+        let mut reachable: FnvHashMap<Location, u32> = FnvHashMap::default();
+        let mut queue: VecDeque<(Location, u32)> = VecDeque::new();
 
-        reachable.insert(hub);
-        queue.push_back(hub);
+        reachable.insert(hub, 0);
+        queue.push_back((hub, 0));
 
-        while let Some(loc) = queue.pop_front() {
+        while let Some((loc, dist)) = queue.pop_front() {
             let x = loc.x();
             let y = loc.y();
 
@@ -71,7 +81,7 @@ impl PlacementLayer for ReachabilityLayer {
                 let uy = ny as u8;
                 let nloc = Location::from_coords(ux as u32, uy as u32);
 
-                if reachable.contains(&nloc) {
+                if reachable.contains_key(&nloc) {
                     continue;
                 }
                 if terrain.is_wall(ux, uy) {
@@ -84,8 +94,9 @@ impl PlacementLayer for ReachabilityLayer {
                 let is_walkable = !state.occupied.contains(&nloc) || has_road(state, nloc);
 
                 if is_walkable {
-                    reachable.insert(nloc);
-                    queue.push_back(nloc);
+                    let next_dist = dist + 1;
+                    reachable.insert(nloc, next_dist);
+                    queue.push_back((nloc, next_dist));
                 }
             }
         }
@@ -109,7 +120,8 @@ impl PlacementLayer for ReachabilityLayer {
         }
 
         // Check that every non-road structure has at least one adjacent
-        // reachable tile (a creep can stand next to it to interact).
+        // reachable tile (a creep can stand next to it to interact) and
+        // that the path distance is not unreasonably long.
         // Skip structures in the mineral area (optional infrastructure).
         for (loc, items) in &state.structures {
             let has_non_road = items
@@ -124,11 +136,10 @@ impl PlacementLayer for ReachabilityLayer {
                 continue;
             }
 
-            // The structure itself might be reachable (e.g. roads under it),
-            // but what matters is that a creep can stand adjacent to it.
+            // Find the nearest adjacent reachable tile and its distance
             let x = loc.x();
             let y = loc.y();
-            let mut serviceable = false;
+            let mut best_path_dist: Option<u32> = None;
 
             for &(dx, dy) in &NEIGHBORS_8 {
                 let nx = x as i16 + dx as i16;
@@ -137,22 +148,39 @@ impl PlacementLayer for ReachabilityLayer {
                     continue;
                 }
                 let nloc = Location::from_coords(nx as u32, ny as u32);
-                if reachable.contains(&nloc) {
-                    serviceable = true;
-                    break;
+                if let Some(&dist) = reachable.get(&nloc) {
+                    best_path_dist = Some(match best_path_dist {
+                        Some(current) => current.min(dist),
+                        None => dist,
+                    });
                 }
             }
 
-            if !serviceable {
-                trace!(
-                    "Reachability: unreachable structure at ({}, {}), reachable_tiles={}",
-                    x, y, reachable.len()
-                );
-                return Some(Err(()));
+            match best_path_dist {
+                None => {
+                    // No adjacent reachable tile -- structure is unreachable
+                    trace!(
+                        "Reachability: unreachable structure at ({}, {}), reachable_tiles={}",
+                        x, y, reachable.len()
+                    );
+                    return Some(Err(()));
+                }
+                Some(path_dist) => {
+                    // Check for unreasonable detours
+                    let chebyshev = hub.distance_to(*loc) as u32;
+                    let max_allowed = chebyshev * DETOUR_RATIO + DETOUR_THRESHOLD;
+                    if path_dist > max_allowed {
+                        trace!(
+                            "Reachability: excessive detour to ({}, {}): path_dist={}, chebyshev={}, max_allowed={}",
+                            x, y, path_dist, chebyshev, max_allowed
+                        );
+                        return Some(Err(()));
+                    }
+                }
             }
         }
 
-        // All structures are reachable -- pass through unchanged
+        // All structures are reachable within reasonable distances
         Some(Ok(state.clone()))
     }
 }

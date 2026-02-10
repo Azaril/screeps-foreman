@@ -64,7 +64,7 @@ impl PlacementLayer for SourceInfraLayer {
                 }
                 let ux = x as u8;
                 let uy = y as u8;
-                if terrain.is_wall(ux, uy) || new_state.is_occupied(ux, uy) {
+                if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
                     continue;
                 }
                 let dist_to_hub =
@@ -90,7 +90,7 @@ impl PlacementLayer for SourceInfraLayer {
                     }
                     let ux = lx as u8;
                     let uy = ly as u8;
-                    if terrain.is_wall(ux, uy) || new_state.is_occupied(ux, uy) {
+                    if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
                         continue;
                     }
                     new_state.place_structure(ux, uy, StructureType::Link, 0);

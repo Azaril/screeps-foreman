@@ -1,5 +1,8 @@
 //! RclAssignmentLayer: Post-processing layer that assigns RCL values to all structures.
 //! Deterministic (1 candidate). Runs after all structures are placed.
+//!
+//! Uses flood-fill distances from the hub (accounting for terrain walls) to
+//! determine build priority ordering rather than Chebyshev distance.
 
 use crate::constants::min_rcl_for_nth;
 use crate::layer::*;
@@ -14,7 +17,7 @@ use crate::shim::*;
 use screeps::*;
 
 /// Assigns RCL values to all structures based on the Screeps API limits
-/// and strategic priority (distance to hub).
+/// and strategic priority (flood-fill distance to hub).
 /// Deterministic (1 candidate).
 pub struct RclAssignmentLayer;
 
@@ -35,7 +38,7 @@ impl PlacementLayer for RclAssignmentLayer {
         &self,
         index: usize,
         state: &PlacementState,
-        _terrain: &FastRoomTerrain,
+        terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
             return None;
@@ -47,6 +50,9 @@ impl PlacementLayer for RclAssignmentLayer {
         };
 
         let mut new_state = state.clone();
+
+        // Compute hub flood-fill distances for accurate ordering
+        let hub_dists = new_state.hub_distances(terrain).cloned();
 
         // Collect all non-road, non-container structures grouped by type.
         // Each entry is (location, structure_type, distance_to_hub).
@@ -60,7 +66,11 @@ impl PlacementLayer for RclAssignmentLayer {
                     // Ramparts and walls are handled separately
                     StructureType::Rampart | StructureType::Wall => continue,
                     st => {
-                        let dist = hub.distance_to(*loc) as u32;
+                        // Use flood-fill distance if available, fall back to Chebyshev
+                        let dist = hub_dists
+                            .as_ref()
+                            .and_then(|d| *d.get(loc.x() as usize, loc.y() as usize))
+                            .unwrap_or_else(|| hub.distance_to(*loc) as u32);
                         by_type.entry(st).or_default().push((*loc, dist));
                     }
                 }
@@ -68,7 +78,7 @@ impl PlacementLayer for RclAssignmentLayer {
         }
 
         // For each structure type, sort by strategic priority and assign RCL.
-        // Priority: closer to hub = lower RCL (built earlier).
+        // Priority: closer to hub (by flood-fill) = lower RCL (built earlier).
         for (st, entries) in &mut by_type {
             // Sort by distance to hub (closest first)
             entries.sort_by_key(|e| e.1);

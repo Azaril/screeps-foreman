@@ -95,18 +95,9 @@ impl PlacementLayer for RoadNetworkLayer {
             }
         }
 
-        // Place road structures
+        // Place road structures, skipping tiles that already have any structure
         for &road_loc in &road_tiles {
-            let already_has_structure = new_state
-                .structures
-                .get(&road_loc)
-                .map(|items| {
-                    items
-                        .iter()
-                        .any(|i| i.structure_type != StructureType::Road)
-                })
-                .unwrap_or(false);
-            if !already_has_structure {
+            if !new_state.structures.contains_key(&road_loc) {
                 new_state
                     .structures
                     .entry(road_loc)

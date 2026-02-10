@@ -12,7 +12,13 @@ use crate::search::compute_fingerprint;
 
 // Re-export key types for convenience
 pub use crate::pipeline::PlanningState as PlanState;
-pub use crate::plan::{BuildPriority, Plan};
+pub use crate::plan::{
+    AllowAllFilter, BuildPriority, ExistingStructure, ExecutionFilter, Plan, PlanOperation,
+    RclSubstitution,
+};
+
+#[cfg(not(feature = "shim"))]
+pub use crate::plan::{execute_operations, snapshot_structures};
 pub use crate::room_data::PlanLocation;
 pub use crate::terrain::{FastRoomTerrain, TerrainFlags};
 

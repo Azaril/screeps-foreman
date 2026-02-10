@@ -10,6 +10,7 @@ pub mod controller_infra;
 pub mod mineral_infra;
 pub mod extension;
 pub mod road_network;
+pub mod road_prune;
 pub mod reachability;
 pub mod defense;
 pub mod rcl_assignment;
@@ -18,7 +19,6 @@ pub mod upgrade_area_score;
 pub mod extension_score;
 pub mod tower_coverage_score;
 pub mod upkeep_score;
-pub mod traffic_score;
 
 pub use anchor::AnchorLayer;
 pub use anchor_score::AnchorScoreLayer;
@@ -31,6 +31,7 @@ pub use controller_infra::ControllerInfraLayer;
 pub use mineral_infra::MineralInfraLayer;
 pub use extension::ExtensionLayer;
 pub use road_network::RoadNetworkLayer;
+pub use road_prune::RoadPruneLayer;
 pub use reachability::ReachabilityLayer;
 pub use defense::DefenseLayer;
 pub use rcl_assignment::RclAssignmentLayer;
@@ -39,7 +40,6 @@ pub use upgrade_area_score::UpgradeAreaScoreLayer;
 pub use extension_score::ExtensionScoreLayer;
 pub use tower_coverage_score::TowerCoverageScoreLayer;
 pub use upkeep_score::UpkeepScoreLayer;
-pub use traffic_score::TrafficScoreLayer;
 
 use crate::layer::PlacementLayer;
 
@@ -60,12 +60,12 @@ use crate::layer::PlacementLayer;
 /// 13. ExtensionLayer -- target 60, min 60 (fails if < min)
 /// 14. ExtensionScoreLayer
 /// 15. RoadNetworkLayer
-/// 16. ReachabilityLayer -- BFS validates all structures reachable from hub
-/// 17. DefenseLayer
-/// 18. RclAssignmentLayer
-/// 19. TowerCoverageScoreLayer
-/// 20. UpkeepScoreLayer
-/// 21. TrafficScoreLayer
+/// 16. RoadPruneLayer -- removes dead-end and unreachable roads
+/// 17. ReachabilityLayer -- BFS validates all structures reachable from hub
+/// 18. DefenseLayer
+/// 19. RclAssignmentLayer
+/// 20. TowerCoverageScoreLayer
+/// 21. UpkeepScoreLayer
 pub fn default_layers() -> Vec<Box<dyn PlacementLayer>> {
     vec![
         Box::new(AnchorLayer::default()),
@@ -83,11 +83,11 @@ pub fn default_layers() -> Vec<Box<dyn PlacementLayer>> {
         Box::new(ExtensionLayer::default()),
         Box::new(ExtensionScoreLayer),
         Box::new(RoadNetworkLayer),
+        Box::new(RoadPruneLayer),
         Box::new(ReachabilityLayer),
         Box::new(DefenseLayer),
         Box::new(RclAssignmentLayer),
         Box::new(TowerCoverageScoreLayer),
         Box::new(UpkeepScoreLayer),
-        Box::new(TrafficScoreLayer),
     ]
 }

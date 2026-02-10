@@ -67,7 +67,7 @@ impl PlacementLayer for ControllerInfraLayer {
                 if dist > 3 || dist == 0 {
                     continue;
                 }
-                if terrain.is_wall(ux, uy) || new_state.is_occupied(ux, uy) {
+                if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
                     continue;
                 }
                 let storage_dist = state
@@ -97,7 +97,7 @@ impl PlacementLayer for ControllerInfraLayer {
         // Place container in upgrade area
         let upgrade_area = new_state.get_landmark_set("upgrade_area").to_vec();
         let container_loc = match upgrade_area.first() {
-            Some(&loc) if !new_state.is_occupied(loc.x(), loc.y()) => loc,
+            Some(&loc) if !new_state.has_any_structure(loc.x(), loc.y()) => loc,
             _ => return Some(Err(())),
         };
 
@@ -119,7 +119,7 @@ impl PlacementLayer for ControllerInfraLayer {
             }
             let ux = lx as u8;
             let uy = ly as u8;
-            if terrain.is_wall(ux, uy) || new_state.is_occupied(ux, uy) {
+            if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
                 continue;
             }
             new_state.place_structure(ux, uy, StructureType::Link, 0);

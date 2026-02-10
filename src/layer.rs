@@ -10,6 +10,7 @@ use crate::plan::*;
 use crate::terrain::*;
 use fnv::{FnvHashMap, FnvHashSet};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[cfg(feature = "shim")]
 use crate::shim::*;
@@ -41,6 +42,11 @@ pub struct PlacementState {
     pub landmark_sets: FnvHashMap<String, Vec<Location>>,
     /// Accumulated weighted scores from layers that have run so far.
     pub scores: Vec<ScoreEntry>,
+    /// Cached hub flood-fill distances (terrain-only, ignoring structures).
+    /// Computed lazily after the hub landmark is set. Shared via Arc to
+    /// avoid expensive clones during search tree expansion.
+    #[serde(skip)]
+    hub_flood_fill: Option<Arc<RoomDataArray<Option<u32>>>>,
 }
 
 impl PlacementState {
@@ -53,6 +59,7 @@ impl PlacementState {
             landmarks: FnvHashMap::default(),
             landmark_sets: FnvHashMap::default(),
             scores: Vec::new(),
+            hub_flood_fill: None,
         }
     }
 
@@ -93,6 +100,12 @@ impl PlacementState {
             .contains(&Location::from_coords(x as u32, y as u32))
     }
 
+    /// Check if a tile has any structure placed on it (including roads).
+    pub fn has_any_structure(&self, x: u8, y: u8) -> bool {
+        self.structures
+            .contains_key(&Location::from_coords(x as u32, y as u32))
+    }
+
     /// Set a named landmark location.
     pub fn set_landmark(&mut self, name: impl Into<String>, loc: Location) {
         self.landmarks.insert(name.into(), loc);
@@ -117,6 +130,27 @@ impl PlacementState {
             .get(name)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Get the hub flood-fill distance map, computing it if not yet cached.
+    /// Returns `None` if the hub landmark has not been set yet.
+    /// The flood-fill uses terrain-only distances (ignores placed structures)
+    /// so it remains valid as structures are added to the plan.
+    pub fn hub_distances(&mut self, terrain: &FastRoomTerrain) -> Option<&RoomDataArray<Option<u32>>> {
+        if self.hub_flood_fill.is_none() {
+            if let Some(hub) = self.get_landmark("hub") {
+                let (dist_map, _max) = flood_fill_distance(terrain, &[hub]);
+                self.hub_flood_fill = Some(Arc::new(dist_map));
+            }
+        }
+        self.hub_flood_fill.as_ref().map(|arc| arc.as_ref())
+    }
+
+    /// Get the hub flood-fill distance for a specific location.
+    /// Returns `None` if hub is not set or the location is unreachable.
+    pub fn hub_distance_to(&mut self, terrain: &FastRoomTerrain, loc: Location) -> Option<u32> {
+        self.hub_distances(terrain)
+            .and_then(|dists| *dists.get(loc.x() as usize, loc.y() as usize))
     }
 
     /// Build a PlanScore from the accumulated ScoreEntry values.
