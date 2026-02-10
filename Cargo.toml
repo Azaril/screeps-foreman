@@ -21,6 +21,7 @@ pathfinding = "4"
 rs-graph = "0.20"
 fnv = "1.0"
 screeps-game-api = { version = "0.23", optional = true }
+screeps-visual = { git = "https://github.com/Azaril/screeps-visual" }
 screeps-cache = { git = "https://github.com/Azaril/screeps-cache" }
 screeps-timing = { git = "https://github.com/Azaril/screeps-timing", optional = true }
 screeps-timing-annotate = { git = "https://github.com/Azaril/screeps-timing-annotate", optional = true }
