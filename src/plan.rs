@@ -100,15 +100,29 @@ pub struct PlanScore {
 // Execution filter trait (caller-provided policy)
 // ---------------------------------------------------------------------------
 
-/// Caller-provided filter that decides whether a build step should be
-/// placed during plan execution.
+/// Caller-provided stateful filter that decides whether a build step
+/// should be placed during plan execution.
 ///
 /// Implement this in your game crate where you have access to the live
-/// game state (e.g. to check adjacent structures for roads, or to defer
-/// walls/ramparts at low RCL).
+/// game state (e.g. to check adjacent structures for roads, to defer
+/// walls/ramparts at low RCL, or to cap the number of in-flight
+/// construction sites).
+///
+/// The filter is called in two phases for each approved placement:
+/// 1. [`should_place`](ExecutionFilter::should_place) — decide whether
+///    the build step should be placed right now.
+/// 2. [`added_placement`](ExecutionFilter::added_placement) — called
+///    after the placement is committed, so the filter can update its
+///    internal state (e.g. increment a construction-site counter).
 pub trait ExecutionFilter {
     /// Return `true` if the given build step should be placed right now.
     fn should_place(&self, step: &BuildStep) -> bool;
+
+    /// Called after a placement has been committed to the operations list.
+    ///
+    /// Use this to update any internal bookkeeping (e.g. increment a
+    /// counter of in-flight construction sites).
+    fn added_placement(&mut self, step: &BuildStep);
 }
 
 /// A no-op filter that allows every build step.
@@ -118,6 +132,46 @@ impl ExecutionFilter for AllowAllFilter {
     fn should_place(&self, _step: &BuildStep) -> bool {
         true
     }
+
+    fn added_placement(&mut self, _step: &BuildStep) {}
+}
+
+/// Caller-provided stateful filter that decides whether a misplaced
+/// structure should be removed during plan cleanup.
+///
+/// Implement this in your game crate where you have access to the live
+/// game state (e.g. to prevent removing the last spawn in a room).
+///
+/// The filter is called in two phases for each approved removal:
+/// 1. [`should_remove`](CleanupFilter::should_remove) — decide whether
+///    the structure may be removed.
+/// 2. [`added_removal`](CleanupFilter::added_removal) — called after the
+///    removal is committed, so the filter can update its internal state
+///    (e.g. decrement a remaining-spawn counter).
+pub trait CleanupFilter {
+    /// Return `true` if the given structure should be removed.
+    ///
+    /// Called for each structure that the plan considers invalid (not
+    /// matching the plan or an active substitution). The implementation
+    /// can veto removal by returning `false`.
+    fn should_remove(&self, structure: &ExistingStructure) -> bool;
+
+    /// Called after a removal has been committed to the operations list.
+    ///
+    /// Use this to update any internal bookkeeping (e.g. decrement a
+    /// counter of remaining structures of a given type).
+    fn added_removal(&mut self, structure: &ExistingStructure);
+}
+
+/// A no-op cleanup filter that allows every removal.
+pub struct AllowAllCleanupFilter;
+
+impl CleanupFilter for AllowAllCleanupFilter {
+    fn should_remove(&self, _structure: &ExistingStructure) -> bool {
+        true
+    }
+
+    fn added_removal(&mut self, _structure: &ExistingStructure) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -235,18 +289,19 @@ impl Plan {
     /// [`PlanOperation`] values that the caller should apply to the game.
     /// The plan itself never touches the game API.
     ///
+    /// The `filter` controls which build steps are placed and receives
+    /// a callback after each placement so it can track state (e.g. cap
+    /// the number of in-flight construction sites).
+    ///
     /// # Arguments
     /// * `room_level` - Current room controller level.
-    /// * `max_placements` - Maximum number of `CreateSite` operations to emit.
     /// * `filter` - Caller-provided policy for which build steps to place.
     pub fn get_build_operations(
         &self,
         room_level: u8,
-        max_placements: u32,
-        filter: &dyn ExecutionFilter,
+        filter: &mut dyn ExecutionFilter,
     ) -> Vec<PlanOperation> {
         let mut ops = Vec::new();
-        let mut current_placements: u32 = 0;
 
         // Phase 1: Handle substitution transitions.
         // When the room has reached a substitution's replaced_at_rcl, emit
@@ -263,29 +318,29 @@ impl Plan {
 
         // Phase 2: Place structures from the build order.
         for step in &self.build_order {
-            if current_placements >= max_placements {
-                break;
-            }
             if room_level >= step.required_rcl && filter.should_place(step) {
+                filter.added_placement(step);
                 ops.push(PlanOperation::CreateSite {
                     location: step.location,
                     structure_type: step.structure_type,
                 });
-                current_placements += 1;
             }
         }
 
         // Phase 3: Place active substitutions.
         for sub in &self.substitutions {
-            if current_placements >= max_placements {
-                break;
-            }
-            if room_level >= sub.active_from_rcl && room_level < sub.replaced_at_rcl {
+            let step = BuildStep {
+                structure_type: sub.substitute,
+                location: sub.location,
+                required_rcl: sub.active_from_rcl,
+                priority: sub.priority,
+            };
+            if room_level >= sub.active_from_rcl && room_level < sub.replaced_at_rcl && filter.should_place(&step) {
+                filter.added_placement(&step);
                 ops.push(PlanOperation::CreateSite {
                     location: sub.location,
                     structure_type: sub.substitute,
                 });
-                current_placements += 1;
             }
         }
 
@@ -300,17 +355,21 @@ impl Plan {
     /// [`PlanOperation::DestroyStructure`] for each structure that is
     /// neither in the plan nor an active substitution.
     ///
+    /// The `filter` parameter lets the caller veto individual removals
+    /// based on live game state (e.g. to protect the last spawn in a
+    /// room). Use [`AllowAllCleanupFilter`] to allow all removals.
+    ///
     /// # Arguments
     /// * `existing` - Snapshot of structures currently in the room.
     /// * `room_level` - Current room controller level.
+    /// * `filter` - Caller-provided policy for which structures may be removed.
     pub fn get_cleanup_operations(
         &self,
         existing: &[ExistingStructure],
         room_level: u8,
+        filter: &mut dyn CleanupFilter,
     ) -> Vec<PlanOperation> {
         let mut invalid = Vec::new();
-        let mut has_valid_spawn = false;
-        let mut has_invalid_spawn = false;
 
         for s in existing {
             let matches_plan = self
@@ -327,28 +386,15 @@ impl Plan {
                     && room_level < sub.replaced_at_rcl
             });
 
-            if matches_plan || matches_substitution {
-                if s.structure_type == StructureType::Spawn {
-                    has_valid_spawn = true;
-                }
-            } else {
-                if s.structure_type == StructureType::Spawn {
-                    has_invalid_spawn = true;
-                }
+            if !matches_plan && !matches_substitution {
                 invalid.push(s);
             }
         }
 
         let mut ops = Vec::new();
         for s in invalid {
-            // Don't destroy the last spawn
-            let can_destroy = if s.structure_type == StructureType::Spawn {
-                has_valid_spawn
-            } else {
-                true
-            };
-
-            if can_destroy && !s.has_store {
+            if !s.has_store && filter.should_remove(s) {
+                filter.added_removal(s);
                 ops.push(PlanOperation::DestroyStructure {
                     location: s.location,
                     structure_type: s.structure_type,
@@ -356,9 +402,6 @@ impl Plan {
                 });
             }
         }
-
-        // Suppress the unused variable warning when there are no invalid spawns
-        let _ = has_invalid_spawn;
 
         ops
     }

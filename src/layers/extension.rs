@@ -325,8 +325,23 @@ fn try_place_stamp(
         }
     }
 
-    // Limit extensions to remaining quota.
+    // Limit extensions to remaining quota, keeping those nearest to the hub
+    // by structure-aware pathing distance.  This prevents holes near the hub
+    // when the last stamp is truncated.
     if ext_placements.len() > remaining as usize {
+        // Compute structure-aware distances so we sort by actual pathing
+        // distance around placed structures, not straight-line Chebyshev.
+        if let Some(hub_dists) = state.hub_pathing_distances(terrain) {
+            ext_placements.sort_by_key(|&(ex, ey)| {
+                (*hub_dists.get(ex as usize, ey as usize)).unwrap_or(u32::MAX)
+            });
+        } else {
+            // Fallback: sort by Chebyshev distance to hub.
+            ext_placements.sort_by_key(|&(ex, ey)| {
+                let loc = Location::from_coords(ex as u32, ey as u32);
+                hub.distance_to(loc) as u32
+            });
+        }
         ext_placements.truncate(remaining as usize);
     }
 

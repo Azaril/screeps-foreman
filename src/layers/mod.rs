@@ -43,29 +43,30 @@ pub use upkeep_score::UpkeepScoreLayer;
 
 use crate::layer::PlacementLayer;
 
-/// Build the default layer stack (21 layers).
+/// Build the default layer stack (22 layers).
 ///
-/// 1. AnchorLayer -- position selection only, sets "hub" landmark
-/// 2. hub_stamp_layer -- StampLayer placing hub stamp at "hub", radius 0
-/// 3. AnchorScoreLayer -- source/ctrl/exit/mineral distance
-/// 4. HubQualityScoreLayer -- key structures adjacent to hub
-/// 5. lab_stamp_layer -- StampLayer placing lab stamp near "hub", radius 8
-/// 6. SpawnLayer -- additional spawns
-/// 7. TowerLayer -- greedy tower placement
-/// 8. UtilityLayer -- observer
-/// 9. SourceInfraLayer -- containers + links (fails on missing)
+///  1. AnchorLayer -- position selection only, sets "hub" landmark
+///  2. hub_stamp_layer -- StampLayer placing hub stamp at "hub", radius 0
+///  3. AnchorScoreLayer -- source/ctrl/exit/mineral distance
+///  4. HubQualityScoreLayer -- key structures adjacent to hub
+///  5. lab_stamp_layer -- StampLayer placing lab stamp near "hub", radius 8
+///  6. SpawnLayer -- additional spawns
+///  7. TowerLayer -- greedy tower placement
+///  8. UtilityLayer -- observer
+///  9. SourceInfraLayer -- containers + links (fails on missing)
 /// 10. ControllerInfraLayer -- upgrade area + container + link (fails on missing)
 /// 11. UpgradeAreaScoreLayer
 /// 12. MineralInfraLayer -- extractor + container
-/// 13. ExtensionLayer -- target 60, min 60 (fails if < min)
-/// 14. ExtensionScoreLayer
-/// 15. RoadNetworkLayer
-/// 16. RoadPruneLayer -- removes dead-end and unreachable roads
-/// 17. ReachabilityLayer -- BFS validates all structures reachable from hub
-/// 18. DefenseLayer
-/// 19. RclAssignmentLayer
-/// 20. TowerCoverageScoreLayer
-/// 21. UpkeepScoreLayer
+/// 13. RoadNetworkLayer::infrastructure() -- early roads to sources/controller
+/// 14. ExtensionLayer -- target 60, min 60 (fails if < min)
+/// 15. ExtensionScoreLayer
+/// 16. DefenseLayer -- ramparts/walls (before all_buildings so roads route through ramparts)
+/// 17. RoadNetworkLayer::all_buildings() -- roads to all remaining interactable buildings
+/// 18. RoadPruneLayer -- removes dead-end, unreachable, and redundant roads
+/// 19. ReachabilityLayer -- BFS validates all structures reachable from hub
+/// 20. RclAssignmentLayer
+/// 21. TowerCoverageScoreLayer
+/// 22. UpkeepScoreLayer
 pub fn default_layers() -> Vec<Box<dyn PlacementLayer>> {
     vec![
         Box::new(AnchorLayer::default()),
@@ -80,12 +81,13 @@ pub fn default_layers() -> Vec<Box<dyn PlacementLayer>> {
         Box::new(ControllerInfraLayer),
         Box::new(UpgradeAreaScoreLayer),
         Box::new(MineralInfraLayer),
+        Box::new(RoadNetworkLayer::infrastructure()),
         Box::new(ExtensionLayer::default()),
         Box::new(ExtensionScoreLayer),
-        Box::new(RoadNetworkLayer),
+        Box::new(DefenseLayer),
+        Box::new(RoadNetworkLayer::all_buildings()),
         Box::new(RoadPruneLayer),
         Box::new(ReachabilityLayer),
-        Box::new(DefenseLayer),
         Box::new(RclAssignmentLayer),
         Box::new(TowerCoverageScoreLayer),
         Box::new(UpkeepScoreLayer),

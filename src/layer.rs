@@ -153,6 +153,38 @@ impl PlacementState {
             .and_then(|dists| *dists.get(loc.x() as usize, loc.y() as usize))
     }
 
+    /// Structure-aware hub distance map.
+    ///
+    /// Unlike `hub_distances` (which only respects terrain walls), this method
+    /// accounts for placed structures:
+    ///   - **Passable:** roads, containers, ramparts (walkable in Screeps)
+    ///   - **Blocked:** everything else (extensions, spawns, towers, walls, etc.)
+    ///
+    /// This gives actual pathing distance around the built layout.
+    ///
+    /// **Not cached** -- the result depends on the current structure layout
+    /// which changes as layers run.  Compute on-demand where needed.
+    pub fn hub_pathing_distances(
+        &self,
+        terrain: &FastRoomTerrain,
+    ) -> Option<RoomDataArray<Option<u32>>> {
+        let hub = self.get_landmark("hub")?;
+        let structures = &self.structures;
+        let (dist_map, _) = flood_fill_distance_with_obstacles(terrain, &[hub], |x, y| {
+            let loc = Location::from_coords(x as u32, y as u32);
+            match structures.get(&loc) {
+                None => true, // no structure = passable
+                Some(items) => items.iter().all(|i| {
+                    matches!(
+                        i.structure_type,
+                        StructureType::Road | StructureType::Container | StructureType::Rampart
+                    )
+                }),
+            }
+        });
+        Some(dist_map)
+    }
+
     /// Build a PlanScore from the accumulated ScoreEntry values.
     pub fn to_plan_score(&self) -> PlanScore {
         let mut score = PlanScore::default();

@@ -6,73 +6,75 @@ use crate::shim::*;
 #[cfg(not(feature = "shim"))]
 use screeps::*;
 
-/// Lab stamps: 10 labs arranged so that all 8 reaction labs are within range 2
-/// of both source labs.
+/// Lab stamp: two clusters of 5 labs mirrored diagonally, separated by a
+/// diagonal road corridor. 10 labs total with 3 required roads and optional
+/// perimeter roads for road-network integration.
 ///
-/// Compact layout:
+/// Each reaction requires 3 labs within range 2: two reagent sources and one
+/// output. The first two labs listed are source candidates (within range 2 of
+/// every other lab), satisfying the `get_labs` filter in the labs mission.
+/// Maximizing the number of lab pairs within range 2 enables future chain
+/// reactions where output labs become sources for the next tier.
+///
 /// ```text
-///  L L L
-///  L S L
-///    R
-///  L S L
-///  L L L
+///      x: -1  0  1  2
+/// y:-1            L  L
+/// y: 0         R  S  L
+/// y: 1      L  S  R  L
+/// y: 2      L  L        
 /// ```
-/// Where S = source lab, L = reaction lab, R = road.
-/// The two source labs are at (0,0) and (0,2). All reaction labs are in the
-/// intersection of range-2 Chebyshev balls around both sources:
-/// x in [-2, 2], y in [0, 2].
+///
+/// S = source lab, L = reaction lab, R = required road.
+/// Optional perimeter roads (not shown) surround the layout.
+/// The 4 rotations cover all orientations.
 pub fn lab_stamps() -> Vec<Stamp> {
-    let compact = Stamp {
-        name: "lab_compact",
+    let stamp = Stamp {
+        name: "lab_cluster",
         placements: vec![
-            // Source lab 1
-            sp(StructureType::Lab, 0, 0, 6),
-            // Source lab 2
-            sp(StructureType::Lab, 0, 2, 6),
-            // Reaction labs (all within range 2 of both sources)
-            sp(StructureType::Lab, -1, 0, 6),
+            // Source lab 1 (within range 2 of all other labs)
             sp(StructureType::Lab, 1, 0, 6),
-            sp(StructureType::Lab, -1, 1, 7),
-            sp(StructureType::Lab, 1, 1, 7),
-            sp(StructureType::Lab, -1, 2, 7),
-            sp(StructureType::Lab, 1, 2, 7),
-            sp(StructureType::Lab, -2, 1, 8),
-            sp(StructureType::Lab, 2, 1, 8),
-            // Road through the middle for access (optional)
-            sp_opt(StructureType::Road, 0, 1, 1),
-        ],
-        min_radius: 3,
-    };
-
-    let diamond = Stamp {
-        name: "lab_diamond",
-        placements: vec![
-            // Source lab 1
-            sp(StructureType::Lab, 0, 0, 6),
-            // Source lab 2
-            sp(StructureType::Lab, 2, 0, 6),
-            // Reaction labs (all within range 2 of both sources)
+            // Source lab 2 (within range 2 of all other labs)
+            sp(StructureType::Lab, 0, 1, 6),
+            // Upper-right cluster (reaction labs)
             sp(StructureType::Lab, 1, -1, 6),
-            sp(StructureType::Lab, 1, 1, 7),
-            sp(StructureType::Lab, 0, -1, 7),
-            sp(StructureType::Lab, 2, -1, 7),
-            sp(StructureType::Lab, 0, 1, 7),
-            sp(StructureType::Lab, 2, 1, 8),
-            sp(StructureType::Lab, 1, -2, 8),
+            sp(StructureType::Lab, 2, -1, 6),
+            sp(StructureType::Lab, 2, 0, 7),
+            sp(StructureType::Lab, 2, 1, 7),
+            // Lower-left cluster (reaction labs)
+            sp(StructureType::Lab, -1, 1, 7),
+            sp(StructureType::Lab, -1, 2, 8),
+            sp(StructureType::Lab, 0, 2, 8),
             sp(StructureType::Lab, 1, 2, 8),
-            // Road (optional)
-            sp_opt(StructureType::Road, 1, 0, 1),
+            // Required diagonal road corridor
+            sp(StructureType::Road, 0, 0, 1),
+            sp(StructureType::Road, 1, 1, 1),
+            sp(StructureType::Road, 2, 2, 1),
+            // Optional perimeter roads for creep access
+            sp_opt(StructureType::Road, 0, -1, 1),
+            sp_opt(StructureType::Road, 1, -2, 1),
+            sp_opt(StructureType::Road, 2, -2, 1),
+            sp_opt(StructureType::Road, 3, -1, 1),
+            sp_opt(StructureType::Road, 3, 0, 1),
+            sp_opt(StructureType::Road, 3, 1, 1),
+            sp_opt(StructureType::Road, 3, 2, 1),
+            sp_opt(StructureType::Road, 2, 3, 1),
+            sp_opt(StructureType::Road, 1, 3, 1),
+            sp_opt(StructureType::Road, 0, 3, 1),
+            sp_opt(StructureType::Road, -1, 3, 1),
+            sp_opt(StructureType::Road, -2, 2, 1),
+            sp_opt(StructureType::Road, -2, 1, 1),
+            sp_opt(StructureType::Road, -1, 0, 1),
         ],
-        min_radius: 3,
+        min_radius: 2,
     };
 
-    let mut stamps = Vec::new();
-    stamps.extend(compact.all_rotations());
-    stamps.extend(diamond.all_rotations());
-    stamps
+    stamp.all_rotations()
 }
 
-/// Validate that all 8 reaction labs are within range 2 of both source labs.
+/// Validate that all 8 reaction labs are within Chebyshev distance 2 of both
+/// source labs. The first two lab placements are treated as sources; the
+/// remaining 8 are reaction/output labs. Each output lab must be within range 2
+/// of both sources so that `output.runReaction(source1, source2)` succeeds.
 pub fn validate_lab_stamp(stamp: &Stamp) -> bool {
     let labs: Vec<_> = stamp
         .placements
