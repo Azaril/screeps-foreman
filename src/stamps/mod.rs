@@ -5,11 +5,7 @@ pub mod tower;
 
 use fnv::FnvHashMap;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 use crate::location::Location;
 

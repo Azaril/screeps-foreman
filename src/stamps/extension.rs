@@ -1,10 +1,6 @@
 use super::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Generate the extension stamp hierarchy from largest to smallest.
 ///

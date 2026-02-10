@@ -1,13 +1,8 @@
 use crate::location::*;
 use crate::visual::*;
 use fnv::FnvHashMap;
+use screeps::constants::StructureType;
 use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
 
 /// A single structure placement in the room plan.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -418,8 +413,9 @@ impl Plan {
 /// operations list.
 ///
 /// Returns the number of construction sites successfully created.
-#[cfg(not(feature = "shim"))]
-pub fn execute_operations(room: &Room, operations: &[PlanOperation]) -> u32 {
+#[cfg(feature = "screeps")]
+pub fn execute_operations(room: &screeps::Room, operations: &[PlanOperation]) -> u32 {
+    use screeps::StructureProperties;
     let room_name = room.name();
     let mut sites_created = 0u32;
 
@@ -441,8 +437,8 @@ pub fn execute_operations(room: &Room, operations: &[PlanOperation]) -> u32 {
                 structure_type,
                 safe_only,
             } => {
-                let pos = RoomPosition::new(location.x(), location.y(), room_name);
-                let structures = room.look_for_at(look::STRUCTURES, &pos);
+                let pos = screeps::RoomPosition::new(location.x(), location.y(), room_name);
+                let structures = room.look_for_at(screeps::look::STRUCTURES, &pos);
                 for structure in &structures {
                     if structure.structure_type() == *structure_type {
                         let should_destroy = if *safe_only {
@@ -470,12 +466,12 @@ pub fn execute_operations(room: &Room, operations: &[PlanOperation]) -> u32 {
 /// This is the default implementation provided for convenience. It
 /// converts the game's `StructureObject` slice into the lightweight
 /// representation that [`Plan::get_cleanup_operations`] expects.
-#[cfg(not(feature = "shim"))]
-pub fn snapshot_structures(structures: &[StructureObject]) -> Vec<ExistingStructure> {
+#[cfg(feature = "screeps")]
+pub fn snapshot_structures(structures: &[screeps::StructureObject]) -> Vec<ExistingStructure> {
     structures
         .iter()
         .map(|s| {
-            let pos = s.pos();
+            let pos = screeps::HasPosition::pos(s);
             ExistingStructure {
                 location: Location::from_coords(pos.x().u8() as u32, pos.y().u8() as u32),
                 structure_type: s.structure_type(),

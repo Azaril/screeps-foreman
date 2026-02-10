@@ -4,11 +4,7 @@
 use crate::layer::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Places observer (and nuker if not already placed by hub stamp).
 /// Deterministic (1 candidate).

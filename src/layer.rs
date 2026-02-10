@@ -12,11 +12,7 @@ use fnv::{FnvHashMap, FnvHashSet};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// A weighted score entry pushed by layers during candidate generation.
 #[derive(Clone, Debug, Serialize, Deserialize)]

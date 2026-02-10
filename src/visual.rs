@@ -1,8 +1,4 @@
-#[cfg(feature = "shim")]
-use super::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 use super::location::*;
 
@@ -12,12 +8,12 @@ pub trait RoomVisualizer {
 
 /// Adapter that implements [`screeps_visual::render::VisualBackend`] by
 /// forwarding draw calls to a [`screeps::RoomVisual`].
-#[cfg(not(feature = "shim"))]
+#[cfg(feature = "screeps")]
 struct RoomVisualBackend<'a> {
-    vis: &'a mut RoomVisual,
+    vis: &'a mut screeps::RoomVisual,
 }
 
-#[cfg(not(feature = "shim"))]
+#[cfg(feature = "screeps")]
 impl<'a> screeps_visual::render::VisualBackend for RoomVisualBackend<'a> {
     fn circle(
         &mut self,
@@ -29,7 +25,7 @@ impl<'a> screeps_visual::render::VisualBackend for RoomVisualBackend<'a> {
         stroke_width: f32,
         opacity: f32,
     ) {
-        let mut style = CircleStyle::default().radius(radius).opacity(opacity);
+        let mut style = screeps::CircleStyle::default().radius(radius).opacity(opacity);
         if let Some(f) = fill {
             style = style.fill(f);
         }
@@ -50,7 +46,7 @@ impl<'a> screeps_visual::render::VisualBackend for RoomVisualBackend<'a> {
         stroke_width: f32,
         opacity: f32,
     ) {
-        let mut style = RectStyle::default().opacity(opacity);
+        let mut style = screeps::RectStyle::default().opacity(opacity);
         if let Some(f) = fill {
             style = style.fill(f);
         }
@@ -68,7 +64,7 @@ impl<'a> screeps_visual::render::VisualBackend for RoomVisualBackend<'a> {
         stroke_width: f32,
         opacity: f32,
     ) {
-        let mut style = PolyStyle::default().opacity(opacity);
+        let mut style = screeps::PolyStyle::default().opacity(opacity);
         if let Some(f) = fill {
             style = style.fill(f);
         }
@@ -86,7 +82,7 @@ impl<'a> screeps_visual::render::VisualBackend for RoomVisualBackend<'a> {
         width: f32,
         opacity: f32,
     ) {
-        let mut style = LineStyle::default().width(width).opacity(opacity);
+        let mut style = screeps::LineStyle::default().width(width).opacity(opacity);
         if let Some(c) = color {
             style = style.color(c);
         }
@@ -94,8 +90,8 @@ impl<'a> screeps_visual::render::VisualBackend for RoomVisualBackend<'a> {
     }
 }
 
-#[cfg(not(feature = "shim"))]
-impl RoomVisualizer for RoomVisual {
+#[cfg(feature = "screeps")]
+impl RoomVisualizer for screeps::RoomVisual {
     fn render(&mut self, location: Location, structure: StructureType) {
         let mut backend = RoomVisualBackend { vis: self };
         screeps_visual::render::render_structure(

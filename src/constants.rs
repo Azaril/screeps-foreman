@@ -2,11 +2,7 @@ pub const ROOM_WIDTH: u8 = 50;
 pub const ROOM_HEIGHT: u8 = 50;
 pub const ROOM_BUILD_BORDER: u8 = 2;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Maximum number of a given structure type allowed at a given RCL.
 /// Returns 0 if the structure is not available at that RCL.

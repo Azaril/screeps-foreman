@@ -9,11 +9,7 @@ use fnv::{FnvHashMap, FnvHashSet};
 use log::*;
 use std::collections::VecDeque;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Maximum allowed ratio of path distance to Chebyshev distance before a
 /// structure is considered to have an unreasonable detour.

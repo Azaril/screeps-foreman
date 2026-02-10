@@ -18,11 +18,7 @@ use crate::terrain::*;
 use fnv::{FnvHashMap, FnvHashSet};
 use pathfinding::directed::astar::astar;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// A function that inspects the current placement state and returns the set of
 /// locations the road network should route to from the hub.

@@ -5,11 +5,7 @@ use crate::layer::*;
 use crate::location::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Places extractor on the mineral and a container adjacent to it.
 /// Deterministic (1 candidate).

@@ -5,11 +5,7 @@ use crate::layer::*;
 use crate::location::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Scores how many key structures (Storage, Terminal, Link, Factory, PowerSpawn)
 /// are adjacent to the hub position. Higher is better.

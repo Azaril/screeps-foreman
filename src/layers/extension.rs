@@ -21,11 +21,7 @@ use fnv::FnvHashSet;
 use log::*;
 use std::collections::VecDeque;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Places extensions via stamp hierarchy outward from the hub.
 /// Deterministic (1 candidate).

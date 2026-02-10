@@ -4,11 +4,7 @@
 use crate::layer::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Scores the plan's upkeep cost. Lower upkeep = higher score.
 /// Considers rampart count, container count, and swamp road count.

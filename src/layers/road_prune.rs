@@ -14,11 +14,7 @@ use log::*;
 use std::cmp::Reverse;
 use std::collections::VecDeque;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Prunes dead-end, unreachable, and redundant road tiles.
 /// Deterministic (1 candidate).

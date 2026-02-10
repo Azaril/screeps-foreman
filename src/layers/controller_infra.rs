@@ -5,11 +5,7 @@ use crate::layer::*;
 use crate::location::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Places controller container, link, and identifies upgrade area.
 /// Deterministic (1 candidate).

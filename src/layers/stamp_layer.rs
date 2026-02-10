@@ -7,11 +7,7 @@ use crate::location::*;
 use crate::stamps::Stamp;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// A generic layer that places one of several stamp variants at positions
 /// relative to a named landmark.

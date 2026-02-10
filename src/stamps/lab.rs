@@ -1,10 +1,6 @@
 use super::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Lab stamp: two clusters of 5 labs mirrored diagonally, separated by a
 /// diagonal road corridor. 10 labs total with 3 required roads and optional

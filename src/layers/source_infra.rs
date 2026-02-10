@@ -5,11 +5,7 @@ use crate::layer::*;
 use crate::location::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Places source containers and links near each source.
 /// Deterministic (1 candidate) -- picks the best container position per source.

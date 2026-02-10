@@ -7,11 +7,7 @@ use crate::location::*;
 use crate::stamps::tower::tower_damage_at_range;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Weight for hub proximity in the composite tower score.
 /// Higher values bias towers closer to storage for faster refueling.

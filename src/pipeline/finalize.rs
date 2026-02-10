@@ -8,11 +8,7 @@ use crate::room_data::*;
 use super::{CpuBudget, PhaseResult};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Phase: Score the plan, assign RCL build order, produce final Plan.
 #[derive(Clone, Serialize, Deserialize)]

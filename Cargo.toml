@@ -4,11 +4,13 @@ version = "0.1.0"
 authors = ["William Archbell <william@archbell.com>"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
-default = ["screeps-game-api"]
-shim = []
+default = []
+## Enable the `screeps` feature to get convenience functions that call the
+## Screeps game API directly: `execute_operations()`, `snapshot_structures()`,
+## and `impl RoomVisualizer for RoomVisual`. Without this feature the crate
+## compiles and runs on native targets for offline testing / benchmarking.
+screeps = []
 profile = ["screeps-timing", "screeps-timing-annotate"]
 
 [dependencies]
@@ -20,7 +22,7 @@ uuid = { version = "0.8", features = ["serde"] }
 pathfinding = "4"
 rs-graph = "0.20"
 fnv = "1.0"
-screeps-game-api = { version = "0.23", optional = true }
+screeps-game-api = "0.23"
 screeps-visual = { git = "https://github.com/Azaril/screeps-visual" }
 screeps-cache = { git = "https://github.com/Azaril/screeps-cache" }
 screeps-timing = { git = "https://github.com/Azaril/screeps-timing", optional = true }

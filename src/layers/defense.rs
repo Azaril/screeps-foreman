@@ -29,11 +29,7 @@ use rs_graph::maxflow::dinic;
 use rs_graph::traits::*;
 use rs_graph::Net;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Infinite capacity sentinel for edges that should never be cut.
 const INF_CAP: u32 = 50 * 50 + 1;

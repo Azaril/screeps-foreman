@@ -7,11 +7,7 @@
 use crate::layer::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Scores how efficiently extensions are placed relative to the hub.
 /// Closer extensions = higher score (less travel time for filling).

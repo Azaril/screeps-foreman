@@ -1,10 +1,6 @@
 use super::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Hub stamp: the filler creep stands at (0,0), surrounded by key structures.
 /// Layout (relative to hub position):

@@ -10,11 +10,7 @@ use crate::layer::*;
 use crate::location::*;
 use crate::terrain::*;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Minimum number of open (walkable, non-occupied) adjacent tiles required
 /// around a spawn candidate.

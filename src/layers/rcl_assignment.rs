@@ -10,11 +10,7 @@ use crate::location::*;
 use crate::terrain::*;
 use fnv::FnvHashMap;
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Assigns RCL values to all structures based on the Screeps API limits
 /// and strategic priority (flood-fill distance to hub).

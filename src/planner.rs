@@ -17,16 +17,12 @@ pub use crate::plan::{
     ExecutionFilter, Plan, PlanOperation, RclSubstitution,
 };
 
-#[cfg(not(feature = "shim"))]
+#[cfg(feature = "screeps")]
 pub use crate::plan::{execute_operations, snapshot_structures};
 pub use crate::room_data::PlanLocation;
 pub use crate::terrain::{FastRoomTerrain, TerrainFlags};
 
-#[cfg(feature = "shim")]
-use crate::shim::*;
-
-#[cfg(not(feature = "shim"))]
-use screeps::*;
+use screeps::constants::StructureType;
 
 /// Result of a planning tick.
 pub enum PlanResult {
