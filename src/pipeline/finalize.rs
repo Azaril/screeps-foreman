@@ -4,6 +4,7 @@
 use crate::layer::PlacementState;
 use crate::location::*;
 use crate::plan::*;
+use crate::planner::get_build_priority;
 use crate::room_data::*;
 use super::{CpuBudget, PhaseResult};
 use serde::{Deserialize, Serialize};
@@ -169,30 +170,3 @@ fn substitution_for(
     }
 }
 
-fn get_build_priority(structure: StructureType, rcl: u32) -> BuildPriority {
-    match structure {
-        StructureType::Spawn => BuildPriority::Critical,
-        StructureType::Extension => {
-            if rcl <= 2 {
-                BuildPriority::Critical
-            } else {
-                BuildPriority::Medium
-            }
-        }
-        StructureType::Storage => BuildPriority::Critical,
-        StructureType::Container => BuildPriority::High,
-        StructureType::Tower => BuildPriority::Critical,
-        StructureType::Terminal => BuildPriority::High,
-        StructureType::Link => BuildPriority::High,
-        StructureType::Lab => BuildPriority::Medium,
-        StructureType::Extractor => BuildPriority::Medium,
-        StructureType::Factory => BuildPriority::Medium,
-        StructureType::Observer => BuildPriority::Low,
-        StructureType::PowerSpawn => BuildPriority::Medium,
-        StructureType::Nuker => BuildPriority::Low,
-        StructureType::Wall => BuildPriority::Low,
-        StructureType::Rampart => BuildPriority::Low,
-        StructureType::Road => BuildPriority::VeryLow,
-        _ => BuildPriority::Medium,
-    }
-}

@@ -161,7 +161,7 @@ pub fn get_build_priority(structure_type: StructureType, rcl: u32) -> BuildPrior
             if rcl <= 2 {
                 BuildPriority::Critical
             } else {
-                BuildPriority::Medium
+                BuildPriority::High
             }
         }
         StructureType::Storage => BuildPriority::Critical,
