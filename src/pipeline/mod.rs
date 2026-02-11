@@ -87,9 +87,9 @@ pub fn tick_pipeline(
                     prune_margin,
                 },
                 PhaseResult::Complete(output) => {
-                    // Transition to Searching
-                    let initial_state = PlacementState::from_analysis(output);
-                    let engine = SearchEngine::new(layers, initial_state, prune_margin);
+                    // Transition to Searching -- analysis is stored once on the engine
+                    let initial_state = PlacementState::new();
+                    let engine = SearchEngine::new(layers, output, initial_state, prune_margin);
                     PlanningState::Searching(engine)
                 }
             }
@@ -98,23 +98,19 @@ pub fn tick_pipeline(
             let terrain = data_source.get_terrain();
             match engine.step(terrain, budget) {
                 SearchResult::Running => PlanningState::Searching(engine),
-                SearchResult::Complete => {
-                    match engine.take_best_plan() {
-                        Some(best_state) => {
-                            let next = finalize::FinalizePhase::from_placement_state(best_state);
-                            PlanningState::Finalizing(next)
-                        }
-                        None => PlanningState::Failed("No valid plan found".to_string()),
+                SearchResult::Complete => match engine.take_best_plan() {
+                    Some((best_state, _analysis)) => {
+                        let next = finalize::FinalizePhase::from_placement_state(best_state);
+                        PlanningState::Finalizing(next)
                     }
-                }
+                    None => PlanningState::Failed("No valid plan found".to_string()),
+                },
             }
         }
-        PlanningState::Finalizing(mut phase) => {
-            match phase.tick(data_source, budget) {
-                PhaseResult::Running => PlanningState::Finalizing(phase),
-                PhaseResult::Complete(plan) => PlanningState::Complete(plan),
-            }
-        }
+        PlanningState::Finalizing(mut phase) => match phase.tick(data_source, budget) {
+            PhaseResult::Running => PlanningState::Finalizing(phase),
+            PhaseResult::Complete(plan) => PlanningState::Complete(plan),
+        },
         // Terminal states
         s @ PlanningState::Complete(_) | s @ PlanningState::Failed(_) => s,
     }

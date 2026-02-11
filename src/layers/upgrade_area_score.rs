@@ -2,6 +2,7 @@
 //! Placed after ControllerInfraLayer.
 
 use crate::layer::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 /// Scores the upgrade area quality based on the number of upgrade positions found.
@@ -16,6 +17,7 @@ impl PlacementLayer for UpgradeAreaScoreLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -25,6 +27,7 @@ impl PlacementLayer for UpgradeAreaScoreLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {

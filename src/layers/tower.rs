@@ -4,6 +4,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::stamps::tower::tower_damage_at_range;
 use crate::terrain::*;
 
@@ -29,6 +30,7 @@ impl PlacementLayer for TowerLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -38,6 +40,7 @@ impl PlacementLayer for TowerLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -56,7 +59,7 @@ impl PlacementLayer for TowerLayer {
 
         // Collect perimeter tiles (exit tiles + tiles at distance ~8-12 from anchor)
         let mut perimeter_tiles: Vec<(u8, u8)> = Vec::new();
-        for exit in &state.analysis.exits.all {
+        for exit in &analysis.exits.all {
             perimeter_tiles.push((exit.x(), exit.y()));
         }
         for dy in -12..=12i16 {
@@ -88,12 +91,13 @@ impl PlacementLayer for TowerLayer {
                     2 => 7,
                     _ => 8,
                 };
-                if !terrain.is_wall(x, y) && !new_state.is_occupied(x, y) && !has_road(&new_state, x, y) {
+                if !terrain.is_wall(x, y)
+                    && !new_state.is_occupied(x, y)
+                    && !has_road(&new_state, x, y)
+                {
                     new_state.place_structure(x, y, StructureType::Tower, rcl);
-                    new_state.add_to_landmark_set(
-                        "towers",
-                        Location::from_coords(x as u32, y as u32),
-                    );
+                    new_state
+                        .add_to_landmark_set("towers", Location::from_coords(x as u32, y as u32));
                 }
             }
             return Some(Ok(new_state));
@@ -165,10 +169,8 @@ impl PlacementLayer for TowerLayer {
             if let Some((tx, ty)) = best_pos {
                 tower_positions.push((tx, ty));
                 new_state.place_structure(tx, ty, StructureType::Tower, rcl);
-                new_state.add_to_landmark_set(
-                    "towers",
-                    Location::from_coords(tx as u32, ty as u32),
-                );
+                new_state
+                    .add_to_landmark_set("towers", Location::from_coords(tx as u32, ty as u32));
             }
         }
 
@@ -182,7 +184,11 @@ fn has_road(state: &PlacementState, x: u8, y: u8) -> bool {
     state
         .structures
         .get(&loc)
-        .map(|items| items.iter().any(|i| i.structure_type == StructureType::Road))
+        .map(|items| {
+            items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Road)
+        })
         .unwrap_or(false)
 }
 

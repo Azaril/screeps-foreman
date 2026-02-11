@@ -24,14 +24,21 @@ pub struct ScoreEntry {
 
 /// The evolving plan state passed through the search tree.
 /// Each layer reads this and produces modified versions (one per candidate).
+///
+/// `AnalysisOutput` is stored separately (on `SearchEngine`) and passed by
+/// reference to layers, so it is serialized only once instead of being
+/// duplicated in every search frame.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PlacementState {
-    /// Pre-computed terrain analysis data.
-    pub analysis: AnalysisOutput,
     /// Structure placements by location.
     pub structures: FnvHashMap<Location, Vec<RoomItem>>,
     /// Tiles occupied by non-road structures (for collision detection).
     pub occupied: FnvHashSet<Location>,
+    /// Tiles excluded from placement by exclusion layers (e.g. exit setback).
+    /// These tiles are treated as unavailable for any structure placement,
+    /// similar to walls, but are set dynamically by layers rather than by terrain.
+    #[serde(default)]
+    pub excluded: FnvHashSet<Location>,
     /// Named locations for cross-layer reference (e.g. "hub", "storage").
     pub landmarks: FnvHashMap<String, Location>,
     /// Named location sets (e.g. "towers", "spawns", "upgrade_area").
@@ -45,13 +52,19 @@ pub struct PlacementState {
     hub_flood_fill: Option<Arc<RoomDataArray<Option<u32>>>>,
 }
 
+impl Default for PlacementState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlacementState {
-    /// Create a new PlacementState from analysis output.
-    pub fn from_analysis(analysis: AnalysisOutput) -> Self {
+    /// Create a new empty PlacementState.
+    pub fn new() -> Self {
         PlacementState {
-            analysis,
             structures: FnvHashMap::default(),
             occupied: FnvHashSet::default(),
+            excluded: FnvHashSet::default(),
             landmarks: FnvHashMap::default(),
             landmark_sets: FnvHashMap::default(),
             scores: Vec::new(),
@@ -78,7 +91,7 @@ impl PlacementState {
         });
     }
 
-    /// Place a structure at the given coordinates.
+    /// Place a structure at the given coordinates with an explicit RCL.
     pub fn place_structure(&mut self, x: u8, y: u8, structure_type: StructureType, rcl: u8) {
         let loc = Location::from_coords(x as u32, y as u32);
         self.structures
@@ -90,16 +103,43 @@ impl PlacementState {
         }
     }
 
-    /// Check if a tile is occupied by a non-road structure.
+    /// Place a structure at the given coordinates with automatic RCL assignment.
+    ///
+    /// The RCL will be resolved later by the `RclAssignmentLayer` or defaulted
+    /// to 1 during finalization.
+    pub fn place_structure_auto_rcl(&mut self, x: u8, y: u8, structure_type: StructureType) {
+        let loc = Location::from_coords(x as u32, y as u32);
+        self.structures
+            .entry(loc)
+            .or_default()
+            .push(RoomItem::new_auto_rcl(structure_type));
+        if structure_type != StructureType::Road {
+            self.occupied.insert(loc);
+        }
+    }
+
+    /// Check if a tile is occupied by a non-road structure or excluded from placement.
     pub fn is_occupied(&self, x: u8, y: u8) -> bool {
-        self.occupied
-            .contains(&Location::from_coords(x as u32, y as u32))
+        let loc = Location::from_coords(x as u32, y as u32);
+        self.occupied.contains(&loc) || self.excluded.contains(&loc)
     }
 
     /// Check if a tile has any structure placed on it (including roads).
     pub fn has_any_structure(&self, x: u8, y: u8) -> bool {
         self.structures
             .contains_key(&Location::from_coords(x as u32, y as u32))
+    }
+
+    /// Check if a tile has been excluded from placement.
+    pub fn is_excluded(&self, x: u8, y: u8) -> bool {
+        self.excluded
+            .contains(&Location::from_coords(x as u32, y as u32))
+    }
+
+    /// Mark a tile as excluded from placement.
+    pub fn exclude_tile(&mut self, x: u8, y: u8) {
+        self.excluded
+            .insert(Location::from_coords(x as u32, y as u32));
     }
 
     /// Set a named landmark location.
@@ -114,10 +154,7 @@ impl PlacementState {
 
     /// Add a location to a named landmark set.
     pub fn add_to_landmark_set(&mut self, name: impl Into<String>, loc: Location) {
-        self.landmark_sets
-            .entry(name.into())
-            .or_default()
-            .push(loc);
+        self.landmark_sets.entry(name.into()).or_default().push(loc);
     }
 
     /// Get a named landmark set.
@@ -132,7 +169,10 @@ impl PlacementState {
     /// Returns `None` if the hub landmark has not been set yet.
     /// The flood-fill uses terrain-only distances (ignores placed structures)
     /// so it remains valid as structures are added to the plan.
-    pub fn hub_distances(&mut self, terrain: &FastRoomTerrain) -> Option<&RoomDataArray<Option<u32>>> {
+    pub fn hub_distances(
+        &mut self,
+        terrain: &FastRoomTerrain,
+    ) -> Option<&RoomDataArray<Option<u32>>> {
         if self.hub_flood_fill.is_none() {
             if let Some(hub) = self.get_landmark("hub") {
                 let (dist_map, _max) = flood_fill_distance(terrain, &[hub]);
@@ -221,6 +261,10 @@ impl PlacementState {
 ///
 /// Layers are stateless -- all mutable state lives in `PlacementState`.
 /// Layers don't need to be serializable; only the search state does.
+///
+/// `AnalysisOutput` is passed by reference to each method that needs it,
+/// rather than being embedded in `PlacementState`. This avoids duplicating
+/// the (large) analysis data in every search frame.
 pub trait PlacementLayer {
     /// Human-readable name for debugging/profiling and fingerprinting.
     fn name(&self) -> &str;
@@ -230,6 +274,7 @@ pub trait PlacementLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         None
@@ -244,12 +289,13 @@ pub trait PlacementLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>>;
 
     /// Quick check before expanding candidates.
     /// Return false to skip this layer (state passes through unchanged).
-    fn is_applicable(&self, _state: &PlacementState) -> bool {
+    fn is_applicable(&self, _state: &PlacementState, _analysis: &AnalysisOutput) -> bool {
         true
     }
 }

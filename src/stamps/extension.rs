@@ -48,10 +48,10 @@ fn extension_stamp_4x4() -> ExtensionStampDef {
         name: "ext_4x4",
         placements: vec![
             // Corner roads (required)
-            sp(StructureType::Road, 0, 0, 1),
-            sp(StructureType::Road, 3, 0, 1),
-            sp(StructureType::Road, 0, 3, 1),
-            sp(StructureType::Road, 3, 3, 1),
+            sp_auto(StructureType::Road, 0, 0),
+            sp_auto(StructureType::Road, 3, 0),
+            sp_auto(StructureType::Road, 0, 3),
+            sp_auto(StructureType::Road, 3, 3),
             // Extensions — row y=0 (between corner roads)
             sp_opt(StructureType::Extension, 1, 0, 2),
             sp_opt(StructureType::Extension, 2, 0, 2),
@@ -70,17 +70,17 @@ fn extension_stamp_4x4() -> ExtensionStampDef {
             sp_opt(StructureType::Extension, 2, 3, 2),
             // Border roads (optional — walkability around the cluster)
             // Top border (y=-1), inner positions only
-            sp_opt(StructureType::Road, 1, -1, 1),
-            sp_opt(StructureType::Road, 2, -1, 1),
+            sp_opt_auto(StructureType::Road, 1, -1),
+            sp_opt_auto(StructureType::Road, 2, -1),
             // Bottom border (y=4), inner positions only
-            sp_opt(StructureType::Road, 1, 4, 1),
-            sp_opt(StructureType::Road, 2, 4, 1),
+            sp_opt_auto(StructureType::Road, 1, 4),
+            sp_opt_auto(StructureType::Road, 2, 4),
             // Left border (x=-1, y=1..2)
-            sp_opt(StructureType::Road, -1, 1, 1),
-            sp_opt(StructureType::Road, -1, 2, 1),
+            sp_opt_auto(StructureType::Road, -1, 1),
+            sp_opt_auto(StructureType::Road, -1, 2),
             // Right border (x=4, y=1..2)
-            sp_opt(StructureType::Road, 4, 1, 1),
-            sp_opt(StructureType::Road, 4, 2, 1),
+            sp_opt_auto(StructureType::Road, 4, 1),
+            sp_opt_auto(StructureType::Road, 4, 2),
         ],
         min_radius: 5,
     };
@@ -93,10 +93,10 @@ fn extension_stamp_4x4() -> ExtensionStampDef {
 /// 3x3 block: 5 extensions + 4 corner roads + border roads.
 ///
 /// ```text
-///     r 
+///     r
 ///   r E r
 /// r E E E r
-///   r E r 
+///   r E r
 ///     r  
 /// ```
 ///
@@ -109,10 +109,10 @@ fn extension_stamp_3x3() -> ExtensionStampDef {
         name: "ext_3x3",
         placements: vec![
             // Corner roads (required)
-            sp(StructureType::Road, 0, 0, 1),
-            sp(StructureType::Road, 2, 0, 1),
-            sp(StructureType::Road, 0, 2, 1),
-            sp(StructureType::Road, 2, 2, 1),
+            sp_auto(StructureType::Road, 0, 0),
+            sp_auto(StructureType::Road, 2, 0),
+            sp_auto(StructureType::Road, 0, 2),
+            sp_auto(StructureType::Road, 2, 2),
             // Extensions — cross/plus shape
             sp_opt(StructureType::Extension, 1, 0, 2), // top
             sp_opt(StructureType::Extension, 0, 1, 2), // left
@@ -121,13 +121,13 @@ fn extension_stamp_3x3() -> ExtensionStampDef {
             sp_opt(StructureType::Extension, 1, 2, 2), // bottom
             // Border roads (optional)
             // Top border (y=-1), center only
-            sp_opt(StructureType::Road, 1, -1, 1),
+            sp_opt_auto(StructureType::Road, 1, -1),
             // Bottom border (y=3), center only
-            sp_opt(StructureType::Road, 1, 3, 1),
+            sp_opt_auto(StructureType::Road, 1, 3),
             // Left border (x=-1, y=1 only)
-            sp_opt(StructureType::Road, -1, 1, 1),
+            sp_opt_auto(StructureType::Road, -1, 1),
             // Right border (x=3, y=1 only)
-            sp_opt(StructureType::Road, 3, 1, 1),
+            sp_opt_auto(StructureType::Road, 3, 1),
         ],
         min_radius: 4,
     };
@@ -159,17 +159,17 @@ fn extension_stamp_2x2() -> ExtensionStampDef {
             sp_opt(StructureType::Extension, 1, 1, 2),
             // Border roads (optional), cardinal positions only
             // Top border (y=-1)
-            sp_opt(StructureType::Road, 0, -1, 1),
-            sp_opt(StructureType::Road, 1, -1, 1),
+            sp_opt_auto(StructureType::Road, 0, -1),
+            sp_opt_auto(StructureType::Road, 1, -1),
             // Bottom border (y=2)
-            sp_opt(StructureType::Road, 0, 2, 1),
-            sp_opt(StructureType::Road, 1, 2, 1),
+            sp_opt_auto(StructureType::Road, 0, 2),
+            sp_opt_auto(StructureType::Road, 1, 2),
             // Left border (x=-1, y=0..1)
-            sp_opt(StructureType::Road, -1, 0, 1),
-            sp_opt(StructureType::Road, -1, 1, 1),
+            sp_opt_auto(StructureType::Road, -1, 0),
+            sp_opt_auto(StructureType::Road, -1, 1),
             // Right border (x=2, y=0..1)
-            sp_opt(StructureType::Road, 2, 0, 1),
-            sp_opt(StructureType::Road, 2, 1, 1),
+            sp_opt_auto(StructureType::Road, 2, 0),
+            sp_opt_auto(StructureType::Road, 2, 1),
         ],
         min_radius: 3,
     };

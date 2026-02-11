@@ -2,6 +2,7 @@
 //! Low branching -- deterministic placement.
 
 use crate::layer::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -18,6 +19,7 @@ impl PlacementLayer for UtilityLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -27,6 +29,7 @@ impl PlacementLayer for UtilityLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -54,7 +57,10 @@ impl PlacementLayer for UtilityLayer {
                     if (2..48).contains(&x) && (2..48).contains(&y) {
                         let ux = x as u8;
                         let uy = y as u8;
-                        if !terrain.is_wall(ux, uy) && !new_state.has_any_structure(ux, uy) {
+                        if !terrain.is_wall(ux, uy)
+                            && !new_state.has_any_structure(ux, uy)
+                            && !new_state.is_excluded(ux, uy)
+                        {
                             new_state.place_structure(ux, uy, StructureType::Observer, 8);
                             break 'observer;
                         }

@@ -4,5 +4,5 @@
 //! `layers::hub_quality_score`, `layers::extension_score`, etc.). This module
 //! re-exports the PlanScore type for backward compatibility.
 
-pub use crate::plan::PlanScore;
 pub use crate::layer::ScoreEntry;
+pub use crate::plan::PlanScore;

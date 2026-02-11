@@ -25,7 +25,9 @@ impl<'a> screeps_visual::render::VisualBackend for RoomVisualBackend<'a> {
         stroke_width: f32,
         opacity: f32,
     ) {
-        let mut style = screeps::CircleStyle::default().radius(radius).opacity(opacity);
+        let mut style = screeps::CircleStyle::default()
+            .radius(radius)
+            .opacity(opacity);
         if let Some(f) = fill {
             style = style.fill(f);
         }

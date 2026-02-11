@@ -8,6 +8,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -32,6 +33,7 @@ impl PlacementLayer for SpawnLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -41,6 +43,7 @@ impl PlacementLayer for SpawnLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -78,7 +81,10 @@ impl PlacementLayer for SpawnLayer {
                     }
                     let ux = x as u8;
                     let uy = y as u8;
-                    if terrain.is_wall(ux, uy) || state.is_occupied(ux, uy) || has_road(state, ux, uy) {
+                    if terrain.is_wall(ux, uy)
+                        || state.is_occupied(ux, uy)
+                        || has_road(state, ux, uy)
+                    {
                         continue;
                     }
 
@@ -94,7 +100,9 @@ impl PlacementLayer for SpawnLayer {
                     let dist = hub_dists
                         .as_ref()
                         .and_then(|d| *d.get(ux as usize, uy as usize))
-                        .unwrap_or_else(|| (dx.unsigned_abs() as u32).max(dy.unsigned_abs() as u32));
+                        .unwrap_or_else(|| {
+                            (dx.unsigned_abs() as u32).max(dy.unsigned_abs() as u32)
+                        });
 
                     candidates.push((ux, uy, dist, open));
                 }
@@ -120,7 +128,7 @@ impl PlacementLayer for SpawnLayer {
             if placed >= needed {
                 break;
             }
-            if new_state.has_any_structure(x, y) {
+            if new_state.has_any_structure(x, y) || new_state.is_excluded(x, y) {
                 continue;
             }
 
@@ -136,10 +144,7 @@ impl PlacementLayer for SpawnLayer {
 
             let rcl = spawn_rcls[placed.min(spawn_rcls.len() - 1)];
             new_state.place_structure(x, y, StructureType::Spawn, rcl);
-            new_state.add_to_landmark_set(
-                "spawns",
-                Location::from_coords(x as u32, y as u32),
-            );
+            new_state.add_to_landmark_set("spawns", Location::from_coords(x as u32, y as u32));
             placed_spawn_positions.push((x, y));
             placed += 1;
         }
@@ -154,7 +159,11 @@ fn has_road(state: &PlacementState, x: u8, y: u8) -> bool {
     state
         .structures
         .get(&loc)
-        .map(|items| items.iter().any(|i| i.structure_type == StructureType::Road))
+        .map(|items| {
+            items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Road)
+        })
         .unwrap_or(false)
 }
 

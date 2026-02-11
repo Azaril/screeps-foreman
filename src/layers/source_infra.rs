@@ -3,6 +3,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -19,6 +20,7 @@ impl PlacementLayer for SourceInfraLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -28,6 +30,7 @@ impl PlacementLayer for SourceInfraLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -40,11 +43,11 @@ impl PlacementLayer for SourceInfraLayer {
         };
 
         let mut new_state = state.clone();
-        let source_count = state.analysis.source_distances.len();
+        let source_count = analysis.source_distances.len();
         let mut containers_placed = 0usize;
 
         // Place containers and links for each source
-        for (source_loc, _, _) in &state.analysis.source_distances {
+        for (source_loc, _, _) in &analysis.source_distances {
             let sx = source_loc.x();
             let sy = source_loc.y();
 
@@ -60,7 +63,10 @@ impl PlacementLayer for SourceInfraLayer {
                 }
                 let ux = x as u8;
                 let uy = y as u8;
-                if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
+                if terrain.is_wall(ux, uy)
+                    || new_state.has_any_structure(ux, uy)
+                    || new_state.is_excluded(ux, uy)
+                {
                     continue;
                 }
                 let dist_to_hub =
@@ -86,7 +92,10 @@ impl PlacementLayer for SourceInfraLayer {
                     }
                     let ux = lx as u8;
                     let uy = ly as u8;
-                    if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
+                    if terrain.is_wall(ux, uy)
+                        || new_state.has_any_structure(ux, uy)
+                        || new_state.is_excluded(ux, uy)
+                    {
                         continue;
                     }
                     new_state.place_structure(ux, uy, StructureType::Link, 0);

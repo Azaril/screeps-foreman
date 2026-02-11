@@ -3,6 +3,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -19,6 +20,7 @@ impl PlacementLayer for HubQualityScoreLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -28,6 +30,7 @@ impl PlacementLayer for HubQualityScoreLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {

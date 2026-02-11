@@ -5,19 +5,53 @@ use screeps::constants::StructureType;
 use serde::{Deserialize, Serialize};
 
 /// A single structure placement in the room plan.
+///
+/// `required_rcl` is optional during the planning phase: layers may set it to
+/// `None` to indicate that the RCL should be resolved automatically by the
+/// [`RclAssignmentLayer`] (or defaulted to 1 during finalization). Layers that
+/// want to pin a specific RCL (e.g. road-network roads at RCL 2) set
+/// `Some(rcl)`.
+///
+/// **Serialization compatibility:** Old serialized plans store `required_rcl`
+/// as a bare `u8`. The custom `deserialize_rcl` helper treats `0` as `None`
+/// (RCL 0 is not a valid game level) so old data round-trips correctly.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct RoomItem {
     #[serde(rename = "s")]
     pub structure_type: StructureType,
-    #[serde(rename = "r")]
-    pub required_rcl: u8,
+    #[serde(
+        rename = "r",
+        serialize_with = "serialize_rcl",
+        deserialize_with = "deserialize_rcl"
+    )]
+    pub required_rcl: Option<u8>,
+}
+
+/// Serialize `Option<u8>` as a plain `u8` (None → 0).
+fn serialize_rcl<S: serde::Serializer>(val: &Option<u8>, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_u8(val.unwrap_or(0))
+}
+
+/// Deserialize a plain `u8` into `Option<u8>` (0 → None).
+fn deserialize_rcl<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+    let v = u8::deserialize(d)?;
+    Ok(if v == 0 { None } else { Some(v) })
 }
 
 impl RoomItem {
+    /// Create a new `RoomItem` with an explicit RCL.
     pub fn new(structure_type: StructureType, required_rcl: u8) -> Self {
         RoomItem {
             structure_type,
-            required_rcl,
+            required_rcl: Some(required_rcl),
+        }
+    }
+
+    /// Create a new `RoomItem` with no RCL set (to be resolved later).
+    pub fn new_auto_rcl(structure_type: StructureType) -> Self {
+        RoomItem {
+            structure_type,
+            required_rcl: None,
         }
     }
 
@@ -25,7 +59,13 @@ impl RoomItem {
         self.structure_type
     }
 
+    /// Return the required RCL, defaulting to 1 if not set.
     pub fn required_rcl(&self) -> u8 {
+        self.required_rcl.unwrap_or(1)
+    }
+
+    /// Return the raw optional RCL value.
+    pub fn required_rcl_opt(&self) -> Option<u8> {
         self.required_rcl
     }
 }
@@ -330,7 +370,10 @@ impl Plan {
                 required_rcl: sub.active_from_rcl,
                 priority: sub.priority,
             };
-            if room_level >= sub.active_from_rcl && room_level < sub.replaced_at_rcl && filter.should_place(&step) {
+            if room_level >= sub.active_from_rcl
+                && room_level < sub.replaced_at_rcl
+                && filter.should_place(&step)
+            {
                 filter.added_placement(&step);
                 ops.push(PlanOperation::CreateSite {
                     location: sub.location,

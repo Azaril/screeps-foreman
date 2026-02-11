@@ -1,6 +1,6 @@
+pub mod extension;
 pub mod hub;
 pub mod lab;
-pub mod extension;
 pub mod tower;
 
 use fnv::FnvHashMap;
@@ -15,7 +15,10 @@ pub struct StampPlacement {
     pub structure_type: StructureType,
     pub dx: i8,
     pub dy: i8,
-    pub required_rcl: u8,
+    /// The RCL at which this structure should be built. `None` means the RCL
+    /// will be resolved automatically by the `RclAssignmentLayer` (e.g. roads
+    /// inherit the RCL of adjacent buildings so they aren't placed too early).
+    pub required_rcl: Option<u8>,
     /// If true, this placement must fit for the stamp to be considered valid.
     /// If false, the placement is best-effort and will be skipped if blocked.
     pub required: bool,
@@ -34,7 +37,7 @@ pub struct Stamp {
 impl Stamp {
     /// Get all placements with absolute coordinates given an anchor position.
     /// Returns all placements that are within room bounds (does not check terrain or occupancy).
-    pub fn place_at(&self, anchor_x: u8, anchor_y: u8) -> Vec<(u8, u8, StructureType, u8)> {
+    pub fn place_at(&self, anchor_x: u8, anchor_y: u8) -> Vec<(u8, u8, StructureType, Option<u8>)> {
         self.placements
             .iter()
             .filter_map(|p| {
@@ -49,19 +52,21 @@ impl Stamp {
             .collect()
     }
 
-    /// Get all placements that actually fit, filtering by terrain and occupancy.
+    /// Get all placements that actually fit, filtering by terrain, occupancy, and exclusions.
     /// Required placements that don't fit are still included (caller should use `fits_at`
     /// first to verify the stamp is valid). Optional placements that don't fit are omitted.
     ///
-    /// A tile is considered blocked if it has ANY existing structure (including roads).
-    /// This prevents roads from being placed on non-road structures and vice versa.
+    /// A tile is considered blocked if it has ANY existing structure (including roads)
+    /// or is in the excluded set. This prevents roads from being placed on non-road
+    /// structures and vice versa, and respects exclusion zones set by earlier layers.
     pub fn place_at_filtered(
         &self,
         anchor_x: u8,
         anchor_y: u8,
         terrain: &crate::terrain::FastRoomTerrain,
         structures: &FnvHashMap<Location, Vec<crate::plan::RoomItem>>,
-    ) -> Vec<(u8, u8, StructureType, u8)> {
+        excluded: &fnv::FnvHashSet<Location>,
+    ) -> Vec<(u8, u8, StructureType, Option<u8>)> {
         self.placements
             .iter()
             .filter_map(|p| {
@@ -75,11 +80,14 @@ impl Stamp {
 
                 // Check if this placement fits
                 let loc = Location::from_coords(ux as u32, uy as u32);
+                let is_excluded = excluded.contains(&loc);
                 let fits = if !(1..49).contains(&x) || !(1..49).contains(&y) {
-                    // Edge tiles: only roads allowed, and no existing structures
-                    p.structure_type == StructureType::Road && !structures.contains_key(&loc)
+                    // Edge tiles: only roads allowed, and no existing structures or exclusions
+                    p.structure_type == StructureType::Road
+                        && !structures.contains_key(&loc)
+                        && !is_excluded
                 } else {
-                    !terrain.is_wall(ux, uy) && !structures.contains_key(&loc)
+                    !terrain.is_wall(ux, uy) && !structures.contains_key(&loc) && !is_excluded
                 };
 
                 if fits {
@@ -96,9 +104,15 @@ impl Stamp {
             .collect()
     }
 
-    /// Check if the stamp fits at the given anchor without overlapping walls.
+    /// Check if the stamp fits at the given anchor without overlapping walls or excluded tiles.
     /// Only checks required placements. Optional placements that don't fit are ignored.
-    pub fn fits_at(&self, anchor_x: u8, anchor_y: u8, terrain: &crate::terrain::FastRoomTerrain) -> bool {
+    pub fn fits_at(
+        &self,
+        anchor_x: u8,
+        anchor_y: u8,
+        terrain: &crate::terrain::FastRoomTerrain,
+        excluded: &fnv::FnvHashSet<Location>,
+    ) -> bool {
         self.placements.iter().all(|p| {
             if !p.required {
                 return true; // Optional placements don't affect fit
@@ -107,9 +121,13 @@ impl Stamp {
             let y = anchor_y as i16 + p.dy as i16;
             if !(1..49).contains(&x) || !(1..49).contains(&y) {
                 // Roads can be on edge, but structures cannot be in build border
-                p.structure_type == StructureType::Road && (0..50).contains(&x) && (0..50).contains(&y)
+                p.structure_type == StructureType::Road
+                    && (0..50).contains(&x)
+                    && (0..50).contains(&y)
+                    && !excluded.contains(&Location::from_coords(x as u32, y as u32))
             } else {
                 !terrain.is_wall(x as u8, y as u8)
+                    && !excluded.contains(&Location::from_coords(x as u32, y as u32))
             }
         })
     }
@@ -175,24 +193,54 @@ impl Stamp {
     }
 }
 
-/// Helper to create a required StampPlacement.
+/// Helper to create a required StampPlacement with an explicit RCL.
 pub fn sp(structure_type: StructureType, dx: i8, dy: i8, rcl: u8) -> StampPlacement {
     StampPlacement {
         structure_type,
         dx,
         dy,
-        required_rcl: rcl,
+        required_rcl: Some(rcl),
         required: true,
     }
 }
 
-/// Helper to create an optional StampPlacement.
+/// Helper to create an optional StampPlacement with an explicit RCL.
 pub fn sp_opt(structure_type: StructureType, dx: i8, dy: i8, rcl: u8) -> StampPlacement {
     StampPlacement {
         structure_type,
         dx,
         dy,
-        required_rcl: rcl,
+        required_rcl: Some(rcl),
+        required: false,
+    }
+}
+
+/// Helper to create a required StampPlacement with automatic RCL assignment.
+///
+/// The RCL will be resolved by the `RclAssignmentLayer` based on adjacent
+/// structures. Use this for roads that should inherit the RCL of the
+/// buildings they serve.
+pub fn sp_auto(structure_type: StructureType, dx: i8, dy: i8) -> StampPlacement {
+    StampPlacement {
+        structure_type,
+        dx,
+        dy,
+        required_rcl: None,
+        required: true,
+    }
+}
+
+/// Helper to create an optional StampPlacement with automatic RCL assignment.
+///
+/// The RCL will be resolved by the `RclAssignmentLayer` based on adjacent
+/// structures. Use this for roads that should inherit the RCL of the
+/// buildings they serve.
+pub fn sp_opt_auto(structure_type: StructureType, dx: i8, dy: i8) -> StampPlacement {
+    StampPlacement {
+        structure_type,
+        dx,
+        dy,
+        required_rcl: None,
         required: false,
     }
 }

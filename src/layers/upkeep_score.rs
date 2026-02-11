@@ -2,6 +2,7 @@
 //! Placed after DefenseLayer.
 
 use crate::layer::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -18,6 +19,7 @@ impl PlacementLayer for UpkeepScoreLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -27,6 +29,7 @@ impl PlacementLayer for UpkeepScoreLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {

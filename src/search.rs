@@ -6,6 +6,7 @@
 //! incremental multi-tick execution and serialization for cross-tick persistence.
 
 use crate::layer::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::pipeline::CpuBudget;
 use crate::terrain::*;
 use log::*;
@@ -38,6 +39,10 @@ pub struct SearchEngine {
     /// The ordered layer stack (not serialized -- provided by caller each tick).
     #[serde(skip)]
     layers: Option<Vec<Box<dyn PlacementLayer>>>,
+    /// Pre-computed terrain analysis data, stored once (not per-frame).
+    /// This is the single largest serialized field; factoring it out of
+    /// `PlacementState` avoids duplicating it in every search frame.
+    analysis: AnalysisOutput,
     /// Search state: stack of frames (one per layer depth).
     stack: Vec<SearchFrame>,
     /// Best complete plan found so far (and its score).
@@ -87,9 +92,14 @@ impl<'de> Deserialize<'de> for Box<dyn PlacementLayer> {
 }
 
 impl SearchEngine {
-    /// Create a new search engine with the given layers, initial state, and pruning margin.
+    /// Create a new search engine with the given layers, analysis output,
+    /// initial state, and pruning margin.
+    ///
+    /// The `analysis` is stored once on the engine and passed by reference
+    /// to layers, avoiding duplication in every search frame.
     pub fn new(
         layers: Vec<Box<dyn PlacementLayer>>,
+        analysis: AnalysisOutput,
         initial_state: PlacementState,
         prune_margin: f32,
     ) -> Self {
@@ -98,6 +108,7 @@ impl SearchEngine {
         let num_layers = layers.len();
         let mut engine = SearchEngine {
             layers: Some(layers),
+            analysis,
             stack: Vec::new(),
             best: None,
             best_complete_score: f32::NEG_INFINITY,
@@ -140,9 +151,14 @@ impl SearchEngine {
         self.best_complete_score
     }
 
-    /// Take the best plan out of the engine (consuming it).
-    pub fn take_best_plan(self) -> Option<PlacementState> {
-        self.best.map(|(state, _)| state)
+    /// Take the best plan and the analysis output out of the engine (consuming it).
+    pub fn take_best_plan(self) -> Option<(PlacementState, AnalysisOutput)> {
+        self.best.map(|(state, _)| (state, self.analysis))
+    }
+
+    /// Get a reference to the analysis output.
+    pub fn analysis(&self) -> &AnalysisOutput {
+        &self.analysis
     }
 
     /// Get progress statistics.
@@ -168,9 +184,7 @@ impl SearchEngine {
             if self.stack.is_empty() {
                 debug!(
                     "Search complete: evaluated={}, pruned={}, complete_plans={}",
-                    self.candidates_evaluated,
-                    self.candidates_pruned,
-                    self.complete_plans_found
+                    self.candidates_evaluated, self.candidates_pruned, self.complete_plans_found
                 );
                 // Log per-layer stats
                 for (i, (rej, exh)) in self
@@ -180,10 +194,7 @@ impl SearchEngine {
                     .enumerate()
                 {
                     if *rej > 0 || *exh > 0 {
-                        let name = layers
-                            .get(i)
-                            .map(|l| l.name())
-                            .unwrap_or("?");
+                        let name = layers.get(i).map(|l| l.name()).unwrap_or("?");
                         debug!(
                             "  Layer {} '{}': rejections={}, exhaustions={}",
                             i, name, rej, exh
@@ -202,7 +213,8 @@ impl SearchEngine {
             let layer = &layers[layer_index];
 
             // Generate the next candidate
-            let candidate_result = layer.candidate(candidate_index, &input_state, terrain);
+            let candidate_result =
+                layer.candidate(candidate_index, &input_state, &self.analysis, terrain);
 
             // Increment the candidate index for this frame
             self.stack[frame_idx].next_candidate_index += 1;
@@ -285,7 +297,7 @@ impl SearchEngine {
         state: &PlacementState,
         layers: &[Box<dyn PlacementLayer>],
     ) -> Option<usize> {
-        (start_index..layers.len()).find(|&i| layers[i].is_applicable(state))
+        (start_index..layers.len()).find(|&i| layers[i].is_applicable(state, &self.analysis))
     }
 
     /// Push the initial frame, finding the first applicable layer.

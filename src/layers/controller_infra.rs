@@ -3,6 +3,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -16,13 +17,14 @@ impl PlacementLayer for ControllerInfraLayer {
         "controller_infra"
     }
 
-    fn is_applicable(&self, state: &PlacementState) -> bool {
-        !state.analysis.controller_distances.is_empty()
+    fn is_applicable(&self, _state: &PlacementState, analysis: &AnalysisOutput) -> bool {
+        !analysis.controller_distances.is_empty()
     }
 
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -32,6 +34,7 @@ impl PlacementLayer for ControllerInfraLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -40,7 +43,7 @@ impl PlacementLayer for ControllerInfraLayer {
 
         let mut new_state = state.clone();
 
-        let (ctrl_loc, _, _) = match state.analysis.controller_distances.first() {
+        let (ctrl_loc, _, _) = match analysis.controller_distances.first() {
             Some(entry) => entry,
             None => return Some(Err(())),
         };
@@ -63,11 +66,13 @@ impl PlacementLayer for ControllerInfraLayer {
                 if dist > 3 || dist == 0 {
                     continue;
                 }
-                if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
+                if terrain.is_wall(ux, uy)
+                    || new_state.has_any_structure(ux, uy)
+                    || new_state.is_excluded(ux, uy)
+                {
                     continue;
                 }
-                let storage_dist = state
-                    .analysis
+                let storage_dist = analysis
                     .source_distances
                     .first()
                     .and_then(|(_, dm, _)| *dm.get(ux as usize, uy as usize))
@@ -84,16 +89,19 @@ impl PlacementLayer for ControllerInfraLayer {
 
         // Take up to 4 upgrade positions
         for (x, y, _) in candidates.iter().take(4) {
-            new_state.add_to_landmark_set(
-                "upgrade_area",
-                Location::from_coords(*x as u32, *y as u32),
-            );
+            new_state
+                .add_to_landmark_set("upgrade_area", Location::from_coords(*x as u32, *y as u32));
         }
 
         // Place container in upgrade area
         let upgrade_area = new_state.get_landmark_set("upgrade_area").to_vec();
         let container_loc = match upgrade_area.first() {
-            Some(&loc) if !new_state.has_any_structure(loc.x(), loc.y()) => loc,
+            Some(&loc)
+                if !new_state.has_any_structure(loc.x(), loc.y())
+                    && !new_state.is_excluded(loc.x(), loc.y()) =>
+            {
+                loc
+            }
             _ => return Some(Err(())),
         };
 
@@ -115,7 +123,10 @@ impl PlacementLayer for ControllerInfraLayer {
             }
             let ux = lx as u8;
             let uy = ly as u8;
-            if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
+            if terrain.is_wall(ux, uy)
+                || new_state.has_any_structure(ux, uy)
+                || new_state.is_excluded(ux, uy)
+            {
                 continue;
             }
             new_state.place_structure(ux, uy, StructureType::Link, 0);

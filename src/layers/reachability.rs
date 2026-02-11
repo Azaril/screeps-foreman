@@ -1,9 +1,14 @@
 //! ReachabilityLayer: Validates that all non-road structures are reachable from the hub.
 //! Deterministic (1 candidate). Rejects the plan if any structure is unreachable
 //! or requires an unreasonably long path (detour detection).
+//!
+//! Additionally validates that every walkable tile adjacent to a spawn is reachable
+//! from the hub. This prevents newly spawned creeps from being placed in dead-end
+//! pockets that are disconnected from the rest of the base.
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::*;
@@ -23,6 +28,11 @@ const DETOUR_THRESHOLD: u32 = 8;
 /// every non-road structure has at least one adjacent walkable tile that
 /// is reachable within a reasonable path distance. Rejects the plan if
 /// any structure is unreachable or requires an unreasonably long detour.
+///
+/// For spawns specifically, **every** walkable adjacent tile must be
+/// hub-reachable. The game can place a newly spawned creep on any open
+/// adjacent tile; if even one such tile is a dead-end pocket disconnected
+/// from the hub, the creep will be stuck.
 pub struct ReachabilityLayer;
 
 impl PlacementLayer for ReachabilityLayer {
@@ -33,6 +43,7 @@ impl PlacementLayer for ReachabilityLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -42,6 +53,7 @@ impl PlacementLayer for ReachabilityLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -102,7 +114,7 @@ impl PlacementLayer for ReachabilityLayer {
         // may be placed in areas unreachable from the hub if the mineral is
         // walled off; this is acceptable since mineral extraction is optional.
         let mut mineral_area: FnvHashSet<Location> = FnvHashSet::default();
-        for (mineral_loc, _, _) in &state.analysis.mineral_distances {
+        for (mineral_loc, _, _) in &analysis.mineral_distances {
             mineral_area.insert(*mineral_loc);
             let mx = mineral_loc.x();
             let my = mineral_loc.y();
@@ -157,7 +169,9 @@ impl PlacementLayer for ReachabilityLayer {
                     // No adjacent reachable tile -- structure is unreachable
                     trace!(
                         "Reachability: unreachable structure at ({}, {}), reachable_tiles={}",
-                        x, y, reachable.len()
+                        x,
+                        y,
+                        reachable.len()
                     );
                     return Some(Err(()));
                 }
@@ -172,6 +186,54 @@ impl PlacementLayer for ReachabilityLayer {
                         );
                         return Some(Err(()));
                     }
+                }
+            }
+        }
+
+        // Spawn-specific check: every walkable tile adjacent to a spawn must
+        // be reachable from the hub. The game can place a newly spawned creep
+        // on any open adjacent tile, so unreachable pockets next to spawns
+        // would trap creeps.
+        for (loc, items) in &state.structures {
+            let is_spawn = items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Spawn);
+            if !is_spawn {
+                continue;
+            }
+
+            let x = loc.x();
+            let y = loc.y();
+
+            for &(dx, dy) in &NEIGHBORS_8 {
+                let nx = x as i16 + dx as i16;
+                let ny = y as i16 + dy as i16;
+                if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+                    continue;
+                }
+                let ux = nx as u8;
+                let uy = ny as u8;
+                let nloc = Location::from_coords(ux as u32, uy as u32);
+
+                // Skip walls -- creeps cannot spawn onto walls
+                if terrain.is_wall(ux, uy) {
+                    continue;
+                }
+
+                // Skip tiles occupied by non-road structures (not walkable)
+                if state.occupied.contains(&nloc) && !has_road(state, nloc) {
+                    continue;
+                }
+
+                // This tile is walkable and adjacent to a spawn -- it must be
+                // reachable from the hub, otherwise a creep could spawn here
+                // and be stuck.
+                if !reachable.contains_key(&nloc) {
+                    trace!(
+                        "Reachability: spawn at ({}, {}) has unreachable adjacent walkable tile ({}, {})",
+                        x, y, ux, uy
+                    );
+                    return Some(Err(()));
                 }
             }
         }

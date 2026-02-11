@@ -132,6 +132,110 @@ impl<'de, T: Copy + Deserialize<'de>> Deserialize<'de> for RoomDataArray<T> {
     }
 }
 
+/// Compact serialization for `RoomDataArray<Option<u32>>`.
+///
+/// Flood-fill distances in a 50x50 room fit comfortably in a `u16`
+/// (max distance ~100). This module encodes each element as a `u16`,
+/// using `u16::MAX` (65535) as a sentinel for `None`. This halves the
+/// serialized size compared to bincode's default `Option<u32>` encoding
+/// (2 bytes vs 5 bytes per element).
+pub mod compact_distance_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    const NONE_SENTINEL: u16 = u16::MAX;
+
+    pub fn serialize<S>(data: &RoomDataArray<Option<u32>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let compact: Vec<u16> = data
+            .data
+            .iter()
+            .map(|v| match v {
+                Some(d) => {
+                    // Clamp to u16 range (values > 65534 are extremely unlikely
+                    // in a 50x50 room but we handle it defensively).
+                    (*d).min(NONE_SENTINEL as u32 - 1) as u16
+                }
+                None => NONE_SENTINEL,
+            })
+            .collect();
+        compact.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<RoomDataArray<Option<u32>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let compact = Vec::<u16>::deserialize(deserializer)?;
+        let expected = (ROOM_WIDTH as usize) * (ROOM_HEIGHT as usize);
+        if compact.len() != expected {
+            return Err(serde::de::Error::custom(
+                "Invalid compact distance array size",
+            ));
+        }
+        let data: Vec<Option<u32>> = compact
+            .into_iter()
+            .map(|v| {
+                if v == NONE_SENTINEL {
+                    None
+                } else {
+                    Some(v as u32)
+                }
+            })
+            .collect();
+        Ok(RoomDataArray { data })
+    }
+}
+
+/// A distance entry: (seed location, distance map, max distance).
+pub type DistanceEntry = (Location, RoomDataArray<Option<u32>>, u32);
+
+/// Compact serialization for `Vec<DistanceEntry>`.
+///
+/// Used for source_distances, controller_distances, mineral_distances in
+/// `AnalysisOutput`. Each tuple element is serialized with the distance
+/// array using the compact u16 encoding.
+pub mod compact_distance_vec_serde {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    struct CompactEntry {
+        loc: Location,
+        #[serde(with = "super::compact_distance_serde")]
+        distances: RoomDataArray<Option<u32>>,
+        max_dist: u32,
+    }
+
+    pub fn serialize<S>(data: &[DistanceEntry], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let entries: Vec<CompactEntry> = data
+            .iter()
+            .map(|(loc, distances, max_dist)| CompactEntry {
+                loc: *loc,
+                distances: distances.clone(),
+                max_dist: *max_dist,
+            })
+            .collect();
+        entries.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<DistanceEntry>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let entries = Vec::<CompactEntry>::deserialize(deserializer)?;
+        Ok(entries
+            .into_iter()
+            .map(|e| (e.loc, e.distances, e.max_dist))
+            .collect())
+    }
+}
+
 /// Neighbor offsets for 8-directional movement.
 pub const NEIGHBORS_8: [(i8, i8); 8] = [
     (-1, -1),
@@ -197,7 +301,11 @@ pub fn distance_transform(terrain: &FastRoomTerrain) -> RoomDataArray<u8> {
             } else {
                 1
             };
-            let min_val = current.min(bottom).min(right).min(bottom_right).min(bottom_left);
+            let min_val = current
+                .min(bottom)
+                .min(right)
+                .min(bottom_right)
+                .min(bottom_left);
             result.set(x, y, min_val);
         }
     }

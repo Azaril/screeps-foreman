@@ -13,8 +13,8 @@ use crate::search::compute_fingerprint;
 // Re-export key types for convenience
 pub use crate::pipeline::PlanningState as PlanState;
 pub use crate::plan::{
-    AllowAllCleanupFilter, AllowAllFilter, BuildPriority, CleanupFilter, ExistingStructure,
-    ExecutionFilter, Plan, PlanOperation, RclSubstitution,
+    AllowAllCleanupFilter, AllowAllFilter, BuildPriority, CleanupFilter, ExecutionFilter,
+    ExistingStructure, Plan, PlanOperation, RclSubstitution,
 };
 
 #[cfg(feature = "screeps")]

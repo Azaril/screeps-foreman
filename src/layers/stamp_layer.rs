@@ -4,6 +4,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::stamps::Stamp;
 use crate::terrain::*;
 
@@ -58,6 +59,7 @@ impl PlacementLayer for StampLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(self.total_candidates())
@@ -67,6 +69,7 @@ impl PlacementLayer for StampLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index >= self.total_candidates() {
@@ -91,25 +94,29 @@ impl PlacementLayer for StampLayer {
         let ux = x as u8;
         let uy = y as u8;
 
-        // Check if required placements fit on terrain
-        if !stamp.fits_at(ux, uy, terrain) {
+        // Check if required placements fit on terrain and exclusions
+        if !stamp.fits_at(ux, uy, terrain, &state.excluded) {
             return Some(Err(()));
         }
 
         // Get filtered placements (required + optional that fit)
-        let placements = stamp.place_at_filtered(ux, uy, terrain, &state.structures);
+        let placements =
+            stamp.place_at_filtered(ux, uy, terrain, &state.structures, &state.excluded);
 
         // Check no overlap with existing structures (any type, including roads)
-        let has_overlap = placements.iter().any(|(px, py, _st, _)| {
-            state.has_any_structure(*px, *py)
-        });
+        let has_overlap = placements
+            .iter()
+            .any(|(px, py, _st, _)| state.has_any_structure(*px, *py));
         if has_overlap {
             return Some(Err(()));
         }
 
         let mut new_state = state.clone();
         for (px, py, st, rcl) in &placements {
-            new_state.place_structure(*px, *py, *st, *rcl);
+            match rcl {
+                Some(r) => new_state.place_structure(*px, *py, *st, *r),
+                None => new_state.place_structure_auto_rcl(*px, *py, *st),
+            }
 
             // Populate landmark sets based on mappings
             for (mapped_type, landmark_name) in &self.landmark_mappings {
@@ -186,6 +193,7 @@ impl PlacementLayer for GreedyStampLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -195,6 +203,7 @@ impl PlacementLayer for GreedyStampLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -226,16 +235,21 @@ impl PlacementLayer for GreedyStampLayer {
                     let uy = y as u8;
 
                     for stamp in &self.stamps {
-                        if !stamp.fits_at(ux, uy, terrain) {
+                        if !stamp.fits_at(ux, uy, terrain, &state.excluded) {
                             continue;
                         }
 
-                        let placements =
-                            stamp.place_at_filtered(ux, uy, terrain, &state.structures);
+                        let placements = stamp.place_at_filtered(
+                            ux,
+                            uy,
+                            terrain,
+                            &state.structures,
+                            &state.excluded,
+                        );
 
-                        let has_overlap = placements.iter().any(|(px, py, _st, _)| {
-                            state.has_any_structure(*px, *py)
-                        });
+                        let has_overlap = placements
+                            .iter()
+                            .any(|(px, py, _st, _)| state.has_any_structure(*px, *py));
                         if has_overlap {
                             continue;
                         }
@@ -243,7 +257,10 @@ impl PlacementLayer for GreedyStampLayer {
                         // Found a valid placement -- apply it
                         let mut new_state = state.clone();
                         for (px, py, st, rcl) in &placements {
-                            new_state.place_structure(*px, *py, *st, *rcl);
+                            match rcl {
+                                Some(r) => new_state.place_structure(*px, *py, *st, *r),
+                                None => new_state.place_structure_auto_rcl(*px, *py, *st),
+                            }
                             for (mapped_type, landmark_name) in &self.landmark_mappings {
                                 if st == mapped_type {
                                     new_state.add_to_landmark_set(

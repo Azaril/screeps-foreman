@@ -5,6 +5,7 @@
 //! rather than Chebyshev distance for more accurate travel time estimates.
 
 use crate::layer::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -22,6 +23,7 @@ impl PlacementLayer for ExtensionScoreLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -31,6 +33,7 @@ impl PlacementLayer for ExtensionScoreLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {

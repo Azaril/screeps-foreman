@@ -7,6 +7,7 @@
 use crate::constants::min_rcl_for_nth;
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 use fnv::FnvHashMap;
 
@@ -25,6 +26,7 @@ impl PlacementLayer for RclAssignmentLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -34,6 +36,7 @@ impl PlacementLayer for RclAssignmentLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -75,6 +78,7 @@ impl PlacementLayer for RclAssignmentLayer {
 
         // For each structure type, sort by strategic priority and assign RCL.
         // Priority: closer to hub (by flood-fill) = lower RCL (built earlier).
+        // Structures that already have an explicit RCL are left unchanged.
         for (st, entries) in &mut by_type {
             // Sort by distance to hub (closest first)
             entries.sort_by_key(|e| e.1);
@@ -87,32 +91,47 @@ impl PlacementLayer for RclAssignmentLayer {
                 if let Some(items) = new_state.structures.get_mut(loc) {
                     for item in items.iter_mut() {
                         if item.structure_type == *st {
-                            item.required_rcl = rcl;
+                            item.required_rcl = Some(rcl);
                         }
                     }
                 }
             }
         }
 
-        // Assign RCL to ramparts/walls: all get RCL 2 (earliest available)
+        // Assign RCL to ramparts/walls: set to RCL 2 (earliest available)
+        // unless the layer already pinned a specific RCL.
         for (loc, items) in &mut new_state.structures {
             for item in items.iter_mut() {
                 if item.structure_type == StructureType::Rampart
                     || item.structure_type == StructureType::Wall
                 {
-                    item.required_rcl = 2;
+                    if item.required_rcl.is_none() {
+                        item.required_rcl = Some(2);
+                    }
                     let _ = loc; // suppress unused warning
                 }
             }
         }
 
-        // Assign RCL to roads: inherit the max RCL of adjacent non-road structures.
-        // Roads that serve high-RCL structures should be built at that RCL.
+        // Assign RCL to roads.
+        //
+        // Roads without an explicit RCL (None) inherit the minimum RCL of
+        // adjacent non-road structures so they are available as soon as the
+        // earliest adjacent structure needs them. If no adjacent structures
+        // exist, they default to RCL 1.
+        //
+        // Roads that already have an explicit RCL (set by the layer that
+        // placed them, e.g. RoadNetworkLayer with a pinned RCL) keep the
+        // *minimum* of their current value and the adjacent-structure value.
+        // This ensures that if a road serves both a high-RCL building and a
+        // low-RCL road-network route, it is built at the earlier RCL.
         let road_locs: Vec<Location> = new_state
             .structures
             .iter()
             .filter(|(_, items)| {
-                items.iter().any(|i| i.structure_type == StructureType::Road)
+                items
+                    .iter()
+                    .any(|i| i.structure_type == StructureType::Road)
                     && !items
                         .iter()
                         .any(|i| i.structure_type != StructureType::Road)
@@ -121,7 +140,7 @@ impl PlacementLayer for RclAssignmentLayer {
             .collect();
 
         for road_loc in &road_locs {
-            let mut max_adjacent_rcl = 1u8; // Roads default to RCL 1
+            let mut min_adjacent_rcl: Option<u8> = None;
 
             // Check all 8 neighbors for non-road structures
             for &(dx, dy) in &NEIGHBORS_8 {
@@ -133,10 +152,10 @@ impl PlacementLayer for RclAssignmentLayer {
                 let nloc = Location::from_coords(nx as u32, ny as u32);
                 if let Some(items) = new_state.structures.get(&nloc) {
                     for item in items {
-                        if item.structure_type != StructureType::Road
-                            && item.required_rcl > max_adjacent_rcl
-                        {
-                            max_adjacent_rcl = item.required_rcl;
+                        if item.structure_type != StructureType::Road {
+                            let adj_rcl = item.required_rcl();
+                            min_adjacent_rcl =
+                                Some(min_adjacent_rcl.map_or(adj_rcl, |cur| cur.min(adj_rcl)));
                         }
                     }
                 }
@@ -146,17 +165,33 @@ impl PlacementLayer for RclAssignmentLayer {
             if let Some(items) = new_state.structures.get_mut(road_loc) {
                 for item in items.iter_mut() {
                     if item.structure_type == StructureType::Road {
-                        item.required_rcl = max_adjacent_rcl;
+                        match (item.required_rcl, min_adjacent_rcl) {
+                            // Road has no explicit RCL and no adjacent structures: default to 1
+                            (None, None) => {
+                                item.required_rcl = Some(1);
+                            }
+                            // Road has no explicit RCL but has adjacent structures: use adjacent
+                            (None, Some(adj)) => {
+                                item.required_rcl = Some(adj);
+                            }
+                            // Road has explicit RCL but no adjacent structures: keep explicit
+                            (Some(_), None) => {}
+                            // Road has explicit RCL and adjacent structures: use minimum
+                            (Some(existing), Some(adj)) => {
+                                item.required_rcl = Some(existing.min(adj));
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Assign RCL to containers: RCL 1 (available from the start)
+        // Assign RCL to containers: default to RCL 1 (available from the start)
+        // unless the layer already pinned a specific RCL.
         for items in new_state.structures.values_mut() {
             for item in items.iter_mut() {
-                if item.structure_type == StructureType::Container {
-                    item.required_rcl = 1;
+                if item.structure_type == StructureType::Container && item.required_rcl.is_none() {
+                    item.required_rcl = Some(1);
                 }
             }
         }

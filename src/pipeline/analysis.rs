@@ -1,23 +1,31 @@
+use super::{CpuBudget, PhaseResult};
 use crate::location::*;
 use crate::room_data::*;
 use crate::terrain::*;
-use super::{CpuBudget, PhaseResult};
 use serde::{Deserialize, Serialize};
 
 /// Output of the analysis phase -- pre-computed terrain data for subsequent phases.
+///
+/// Distance arrays use compact u16 serialization (2 bytes/element instead of
+/// bincode's default 5 bytes for `Option<u32>`), roughly halving the
+/// serialized size of this struct.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AnalysisOutput {
     /// Distance transform: for each tile, Chebyshev distance to nearest wall/edge.
     pub dist_transform: RoomDataArray<u8>,
     /// Flood-fill distances from each source to all reachable tiles.
+    #[serde(with = "crate::terrain::compact_distance_vec_serde")]
     pub source_distances: Vec<(Location, RoomDataArray<Option<u32>>, u32)>,
     /// Flood-fill distances from each controller to all reachable tiles.
+    #[serde(with = "crate::terrain::compact_distance_vec_serde")]
     pub controller_distances: Vec<(Location, RoomDataArray<Option<u32>>, u32)>,
     /// Flood-fill distances from each mineral to all reachable tiles.
+    #[serde(with = "crate::terrain::compact_distance_vec_serde")]
     pub mineral_distances: Vec<(Location, RoomDataArray<Option<u32>>, u32)>,
     /// Passable exit tiles grouped by direction.
     pub exits: ExitData,
     /// Flood-fill distance from all exits combined.
+    #[serde(with = "crate::terrain::compact_distance_serde")]
     pub exit_distances: RoomDataArray<Option<u32>>,
     pub exit_max_distance: u32,
 }
@@ -141,7 +149,9 @@ impl AnalysisPhase {
                         let source = sources[self.partial.source_index];
                         if let Some(loc) = source.as_location() {
                             let (dist_map, max_dist) = flood_fill_distance(terrain, &[loc]);
-                            self.partial.source_distances.push((loc, dist_map, max_dist));
+                            self.partial
+                                .source_distances
+                                .push((loc, dist_map, max_dist));
                         }
                         self.partial.source_index += 1;
                         if !budget.has_budget() {
@@ -159,7 +169,9 @@ impl AnalysisPhase {
                         let ctrl = controllers[self.partial.controller_index];
                         if let Some(loc) = ctrl.as_location() {
                             let (dist_map, max_dist) = flood_fill_distance(terrain, &[loc]);
-                            self.partial.controller_distances.push((loc, dist_map, max_dist));
+                            self.partial
+                                .controller_distances
+                                .push((loc, dist_map, max_dist));
                         }
                         self.partial.controller_index += 1;
                         if !budget.has_budget() {
@@ -177,7 +189,9 @@ impl AnalysisPhase {
                         let mineral = minerals[self.partial.mineral_index];
                         if let Some(loc) = mineral.as_location() {
                             let (dist_map, max_dist) = flood_fill_distance(terrain, &[loc]);
-                            self.partial.mineral_distances.push((loc, dist_map, max_dist));
+                            self.partial
+                                .mineral_distances
+                                .push((loc, dist_map, max_dist));
                         }
                         self.partial.mineral_index += 1;
                         if !budget.has_budget() {
@@ -200,7 +214,9 @@ impl AnalysisPhase {
                     let output = AnalysisOutput {
                         dist_transform: self.partial.dist_transform.take().unwrap(),
                         source_distances: std::mem::take(&mut self.partial.source_distances),
-                        controller_distances: std::mem::take(&mut self.partial.controller_distances),
+                        controller_distances: std::mem::take(
+                            &mut self.partial.controller_distances,
+                        ),
                         mineral_distances: std::mem::take(&mut self.partial.mineral_distances),
                         exits: self.partial.exits.take().unwrap(),
                         exit_distances: self.partial.exit_distances.take().unwrap(),

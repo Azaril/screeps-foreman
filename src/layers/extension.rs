@@ -15,6 +15,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::stamps::extension::{extension_stamps, ExtensionStampDef};
 use crate::terrain::*;
 use fnv::FnvHashSet;
@@ -50,6 +51,7 @@ impl PlacementLayer for ExtensionLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -59,6 +61,7 @@ impl PlacementLayer for ExtensionLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -180,7 +183,6 @@ fn search_and_place(
     }
 
     while let Some((x, y)) = queue.pop_front() {
-
         // If this tile is unoccupied, not a wall, and not already a road,
         // it's a candidate for stamp placement (or 1x1 fallback).
         if !state.is_occupied(x, y)
@@ -208,7 +210,7 @@ fn search_and_place(
             // 1x1 fallback: place a single extension if it has an adjacent
             // road reachable from the hub.
             if has_adjacent_hub_road(x, y, terrain, state, hub) {
-                state.place_structure(x, y, StructureType::Extension, 0);
+                state.place_structure_auto_rcl(x, y, StructureType::Extension);
                 return 1;
             }
         }
@@ -301,13 +303,19 @@ fn try_place_stamp(
 ) -> Option<u8> {
     let stamp = &stamp_def.stamp;
 
-    // Quick check: do required placements fit terrain?
-    if !stamp.fits_at(anchor_x, anchor_y, terrain) {
+    // Quick check: do required placements fit terrain and exclusions?
+    if !stamp.fits_at(anchor_x, anchor_y, terrain, &state.excluded) {
         return None;
     }
 
     // Get filtered placements.
-    let placements = stamp.place_at_filtered(anchor_x, anchor_y, terrain, &state.structures);
+    let placements = stamp.place_at_filtered(
+        anchor_x,
+        anchor_y,
+        terrain,
+        &state.structures,
+        &state.excluded,
+    );
 
     // Separate into roads and extensions.
     let mut road_placements: Vec<(u8, u8)> = Vec::new();
@@ -355,7 +363,7 @@ fn try_place_stamp(
 
     // Place extensions.
     for &(ex, ey) in &ext_placements {
-        state.place_structure(ex, ey, StructureType::Extension, 0);
+        state.place_structure_auto_rcl(ex, ey, StructureType::Extension);
     }
 
     // --- Per-stamp road connectivity verification ---
@@ -431,15 +439,19 @@ fn tile_has_road(state: &PlacementState, x: u8, y: u8) -> bool {
     state
         .structures
         .get(&loc)
-        .map(|items| items.iter().any(|i| i.structure_type == StructureType::Road))
+        .map(|items| {
+            items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Road)
+        })
         .unwrap_or(false)
 }
 
-/// Place road tiles, skipping tiles that already have any structure.
+/// Place road tiles, skipping tiles that already have any structure or are excluded.
 fn place_roads(roads: &[(u8, u8)], state: &mut PlacementState) {
     for &(rx, ry) in roads {
-        if !state.has_any_structure(rx, ry) {
-            state.place_structure(rx, ry, StructureType::Road, 0);
+        if !state.has_any_structure(rx, ry) && !state.is_excluded(rx, ry) {
+            state.place_structure_auto_rcl(rx, ry, StructureType::Road);
         }
     }
 }
@@ -498,7 +510,11 @@ fn has_adjacent_reachable_road(x: u8, y: u8, state: &PlacementState, bfs: &[u32]
         let is_road = state
             .structures
             .get(&loc)
-            .map(|items| items.iter().any(|i| i.structure_type == StructureType::Road))
+            .map(|items| {
+                items
+                    .iter()
+                    .any(|i| i.structure_type == StructureType::Road)
+            })
             .unwrap_or(false);
         if !is_road {
             continue;

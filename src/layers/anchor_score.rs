@@ -3,6 +3,7 @@
 //! exit proximity, openness, and mineral distance. Enables early pruning of bad anchors.
 
 use crate::layer::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 /// Scoring-only layer that evaluates the anchor/hub position.
@@ -17,6 +18,7 @@ impl PlacementLayer for AnchorScoreLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -26,6 +28,7 @@ impl PlacementLayer for AnchorScoreLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -39,7 +42,6 @@ impl PlacementLayer for AnchorScoreLayer {
 
         let x = hub.x();
         let y = hub.y();
-        let analysis = &state.analysis;
 
         let mut new_state = state.clone();
 

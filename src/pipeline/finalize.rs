@@ -1,12 +1,12 @@
 //! Finalization phase: converts the best PlacementState into a rich Plan
 //! with build order, score, substitutions, and metadata.
 
+use super::{CpuBudget, PhaseResult};
 use crate::layer::PlacementState;
 use crate::location::*;
 use crate::plan::*;
 use crate::planner::get_build_priority;
 use crate::room_data::*;
-use super::{CpuBudget, PhaseResult};
 use serde::{Deserialize, Serialize};
 
 use screeps::constants::StructureType;
@@ -75,8 +75,19 @@ impl FinalizePhase {
             .map(|(a, b)| (*a, *b))
             .collect();
 
+        // Resolve any remaining None RCLs in the structures map so the
+        // finalized Plan always has concrete values.
+        let mut structures = self.placement_state.structures.clone();
+        for items in structures.values_mut() {
+            for item in items.iter_mut() {
+                if item.required_rcl.is_none() {
+                    item.required_rcl = Some(1);
+                }
+            }
+        }
+
         Plan {
-            structures: self.placement_state.structures.clone(),
+            structures,
             hub_position,
             upgrade_area,
             road_network,
@@ -91,11 +102,14 @@ impl FinalizePhase {
 
         for (loc, items) in &self.placement_state.structures {
             for item in items {
-                let priority = get_build_priority(item.structure_type, item.required_rcl as u32);
+                // Resolve any remaining None RCLs to 1 so the external API
+                // always has a concrete value.
+                let rcl = item.required_rcl();
+                let priority = get_build_priority(item.structure_type, rcl as u32);
                 steps.push(BuildStep {
                     structure_type: item.structure_type,
                     location: *loc,
-                    required_rcl: item.required_rcl,
+                    required_rcl: rcl,
                     priority,
                 });
             }
@@ -132,7 +146,8 @@ impl FinalizePhase {
 
         for (loc, items) in &self.placement_state.structures {
             for item in items {
-                if let Some(sub) = substitution_for(item.structure_type, item.required_rcl, *loc) {
+                let rcl = item.required_rcl();
+                if let Some(sub) = substitution_for(item.structure_type, rcl, *loc) {
                     substitutions.push(sub);
                 }
             }
@@ -169,4 +184,3 @@ fn substitution_for(
         _ => None,
     }
 }
-

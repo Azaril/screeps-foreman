@@ -13,6 +13,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::plan::*;
 use crate::terrain::*;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -26,28 +27,57 @@ pub type DestinationGenerator = fn(&PlacementState) -> Vec<Location>;
 
 /// Generates an A* road network from hub to destinations provided by a
 /// generator function.  Deterministic (1 candidate).
+///
+/// The optional `rcl` parameter pins all roads placed by this layer to a
+/// specific RCL value. When `None`, roads are placed with auto-RCL and the
+/// `RclAssignmentLayer` will resolve them later (typically inheriting the
+/// minimum RCL of adjacent structures).
 pub struct RoadNetworkLayer {
     layer_name: &'static str,
     destinations: DestinationGenerator,
+    /// If set, all roads placed by this layer are pinned to this RCL.
+    rcl: Option<u8>,
 }
 
 impl RoadNetworkLayer {
     /// Routes to source containers and controller container only.
     /// Intended to run *before* extensions so they fill around the road trunk.
+    ///
+    /// Roads are pinned to RCL 2 so the core infrastructure road network is
+    /// available early, independent of adjacent building RCLs.
     pub fn infrastructure() -> Self {
         RoadNetworkLayer {
             layer_name: "road_network_infra",
             destinations: infrastructure_destinations,
+            rcl: Some(2),
         }
     }
 
     /// Routes to all interactable buildings that lack an adjacent hub-connected
     /// road.  Excludes roads, walls, and ramparts.
+    ///
+    /// Roads are automatically assigned an RCL by the `RclAssignmentLayer`.
     pub fn all_buildings() -> Self {
         RoadNetworkLayer {
             layer_name: "road_network",
             destinations: all_buildings_destinations,
+            rcl: None,
         }
+    }
+
+    /// Set the RCL that all roads placed by this layer should use.
+    ///
+    /// When set, roads are pinned to this value. The `RclAssignmentLayer`
+    /// will keep the minimum of this value and the adjacent-structure RCL.
+    pub fn with_rcl(mut self, rcl: u8) -> Self {
+        self.rcl = Some(rcl);
+        self
+    }
+
+    /// Set roads to use automatic RCL assignment (resolved by `RclAssignmentLayer`).
+    pub fn with_auto_rcl(mut self) -> Self {
+        self.rcl = None;
+        self
     }
 }
 
@@ -59,6 +89,7 @@ impl PlacementLayer for RoadNetworkLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -68,6 +99,7 @@ impl PlacementLayer for RoadNetworkLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -83,6 +115,11 @@ impl PlacementLayer for RoadNetworkLayer {
         let mut road_tiles: FnvHashSet<Location> = FnvHashSet::default();
         let mut road_edges: Vec<(Location, Location)> = Vec::new();
 
+        // Track which road tiles existed before this layer ran, so we only
+        // apply this layer's pinned RCL to roads that are actually part of
+        // a path we computed (not pre-existing roads that A* merely traversed).
+        let mut preexisting_roads: FnvHashSet<Location> = FnvHashSet::default();
+
         // Seed road_tiles from all existing road structures so the A*
         // algorithm reuses roads placed by earlier layers / instances.
         for (loc, items) in &state.structures {
@@ -91,6 +128,7 @@ impl PlacementLayer for RoadNetworkLayer {
                 .any(|i| i.structure_type == StructureType::Road)
             {
                 road_tiles.insert(*loc);
+                preexisting_roads.insert(*loc);
             }
         }
 
@@ -102,6 +140,9 @@ impl PlacementLayer for RoadNetworkLayer {
         // branch off the existing trunk rather than creating parallel roads.
         destinations.sort_by_key(|d| hub.distance_to(*d));
 
+        // Track which tiles are part of paths computed by this layer.
+        let mut path_tiles: FnvHashSet<Location> = FnvHashSet::default();
+
         // Route to each destination incrementally. Already-placed road tiles
         // have zero movement cost, so A* strongly prefers reusing them.
         for dest in &destinations {
@@ -111,6 +152,7 @@ impl PlacementLayer for RoadNetworkLayer {
                 let mut prev = None;
                 for loc in &path {
                     road_tiles.insert(*loc);
+                    path_tiles.insert(*loc);
                     if let Some(p) = prev {
                         road_edges.push((p, *loc));
                     }
@@ -119,14 +161,47 @@ impl PlacementLayer for RoadNetworkLayer {
             }
         }
 
-        // Place road structures, skipping tiles that already have any structure
-        for &road_loc in &road_tiles {
-            if !new_state.structures.contains_key(&road_loc) {
-                new_state
-                    .structures
-                    .entry(road_loc)
-                    .or_default()
-                    .push(RoomItem::new(StructureType::Road, 1));
+        // Place road structures.
+        //
+        // Only apply this layer's pinned RCL to roads that are part of a
+        // path we computed. Pre-existing roads that A* merely traversed
+        // (cost 0) keep their original RCL — they belong to another layer
+        // (e.g. stamp roads around labs) and should not inherit this layer's
+        // early RCL.
+        for &road_loc in &path_tiles {
+            if let Some(items) = new_state.structures.get_mut(&road_loc) {
+                let has_road = items
+                    .iter()
+                    .any(|i| i.structure_type == StructureType::Road);
+                if has_road {
+                    // Only merge RCL onto roads that this layer actually
+                    // needs (newly placed roads, or pre-existing roads that
+                    // are part of a computed path and don't yet have an RCL).
+                    if !preexisting_roads.contains(&road_loc) {
+                        // Road was placed by a previous iteration of this
+                        // layer's path loop — set its RCL.
+                        if let Some(layer_rcl) = self.rcl {
+                            for item in items.iter_mut() {
+                                if item.structure_type == StructureType::Road {
+                                    item.required_rcl = Some(match item.required_rcl {
+                                        Some(existing) => existing.min(layer_rcl),
+                                        None => layer_rcl,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    // Pre-existing roads: leave their RCL unchanged.
+                }
+                // Tile has structures but no road — skip (don't place road
+                // on top of buildings).
+            } else {
+                // No structures at this tile — place a new road.
+                let road = match self.rcl {
+                    Some(rcl) => RoomItem::new(StructureType::Road, rcl),
+                    None => RoomItem::new_auto_rcl(StructureType::Road),
+                };
+                new_state.structures.entry(road_loc).or_default().push(road);
             }
         }
 
@@ -269,32 +344,31 @@ pub(crate) fn find_path(
                     };
 
                     // Structure penalty based on type.
-                    let structure_penalty =
-                        if let Some(items) = structures.get(&loc) {
-                            let has_container = items
-                                .iter()
-                                .any(|i| i.structure_type == StructureType::Container);
-                            let has_other_occupied = items.iter().any(|i| {
-                                !matches!(
-                                    i.structure_type,
-                                    StructureType::Road
-                                        | StructureType::Container
-                                        | StructureType::Rampart
-                                )
-                            });
-                            if has_other_occupied {
-                                // Effectively blocked (extensions, spawns, walls, etc.)
-                                500u32
-                            } else if has_container {
-                                // Walkable but adds fatigue; strongly discouraged
-                                100u32
-                            } else {
-                                // Only roads/ramparts -- passable at normal cost
-                                0u32
-                            }
+                    let structure_penalty = if let Some(items) = structures.get(&loc) {
+                        let has_container = items
+                            .iter()
+                            .any(|i| i.structure_type == StructureType::Container);
+                        let has_other_occupied = items.iter().any(|i| {
+                            !matches!(
+                                i.structure_type,
+                                StructureType::Road
+                                    | StructureType::Container
+                                    | StructureType::Rampart
+                            )
+                        });
+                        if has_other_occupied {
+                            // Effectively blocked (extensions, spawns, walls, etc.)
+                            500u32
+                        } else if has_container {
+                            // Walkable but adds fatigue; strongly discouraged
+                            100u32
                         } else {
+                            // Only roads/ramparts -- passable at normal cost
                             0u32
-                        };
+                        }
+                    } else {
+                        0u32
+                    };
 
                     // Tie-breaking: small discount for tiles adjacent to an
                     // existing road.  This deterministically collapses
@@ -305,8 +379,7 @@ pub(crate) fn find_path(
                         if !(0..50).contains(&ax) || !(0..50).contains(&ay) {
                             return false;
                         }
-                        let aloc =
-                            Location::from_coords(ax as u32, ay as u32);
+                        let aloc = Location::from_coords(ax as u32, ay as u32);
                         existing_roads.contains(&aloc)
                     }) {
                         1u32

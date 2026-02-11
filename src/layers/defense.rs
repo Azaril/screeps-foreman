@@ -21,13 +21,16 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::plan::*;
 use crate::terrain::*;
 use fnv::FnvHashSet;
+use log::*;
 use rs_graph::builder::Builder;
 use rs_graph::maxflow::dinic;
 use rs_graph::traits::*;
 use rs_graph::Net;
+use std::collections::VecDeque;
 
 use screeps::constants::StructureType;
 
@@ -46,6 +49,7 @@ impl PlacementLayer for DefenseLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -55,6 +59,7 @@ impl PlacementLayer for DefenseLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -73,8 +78,7 @@ impl PlacementLayer for DefenseLayer {
         let protected = build_protected_region(hub, state, terrain);
 
         // Compute min-cut tiles
-        let cut_locations =
-            compute_min_cut(&protected, &state.analysis, terrain);
+        let cut_locations = compute_min_cut(&protected, analysis, terrain);
 
         // Classify cut tiles into walls and ramparts. Walls are stronger but
         // block movement; ramparts allow friendly creeps through. We use a
@@ -102,6 +106,13 @@ impl PlacementLayer for DefenseLayer {
                 .or_default()
                 .push(RoomItem::new(StructureType::Rampart, 2));
             new_state.add_to_landmark_set("ramparts", loc);
+        }
+
+        // Validate: flood-fill from exits stopping at cut tiles. Any
+        // non-mineral structure reachable from exits without crossing the
+        // wall is undefended -- reject the plan.
+        if !validate_all_structures_defended(state, analysis, terrain, &cut_set) {
+            return Some(Err(()));
         }
 
         Some(Ok(new_state))
@@ -178,8 +189,16 @@ fn classify_wall_rampart(
         }
     }
 
-    let walls: Vec<Location> = cut_locations.iter().copied().filter(|l| is_wall.contains(l)).collect();
-    let ramparts: Vec<Location> = cut_locations.iter().copied().filter(|l| is_rampart.contains(l)).collect();
+    let walls: Vec<Location> = cut_locations
+        .iter()
+        .copied()
+        .filter(|l| is_wall.contains(l))
+        .collect();
+    let ramparts: Vec<Location> = cut_locations
+        .iter()
+        .copied()
+        .filter(|l| is_rampart.contains(l))
+        .collect();
 
     (walls, ramparts)
 }
@@ -293,10 +312,8 @@ fn compute_min_cut(
     // Adjacency is at most 8 * num_tiles but we don't need an exact count.
     let edge_estimate = num_tiles + 8 * num_tiles + exit_set.len() + protected.len();
 
-    let mut builder = <Net as rs_graph::builder::Buildable>::Builder::with_capacities(
-        num_nodes,
-        edge_estimate,
-    );
+    let mut builder =
+        <Net as rs_graph::builder::Buildable>::Builder::with_capacities(num_nodes, edge_estimate);
     let nodes: Vec<_> = (0..num_nodes).map(|_| builder.add_node()).collect();
     let mut capacities: Vec<u32> = Vec::with_capacity(edge_estimate);
 
@@ -304,10 +321,10 @@ fn compute_min_cut(
     // rs-graph's Net is undirected internally but dinic treats it as directed
     // via the (u, v) convention; we add edges u→v.
     let add_edge = |b: &mut <Net as rs_graph::builder::Buildable>::Builder,
-                        caps: &mut Vec<u32>,
-                        u: usize,
-                        v: usize,
-                        cap: u32| {
+                    caps: &mut Vec<u32>,
+                    u: usize,
+                    v: usize,
+                    cap: u32| {
         b.add_edge(nodes[u], nodes[v]);
         caps.push(cap);
     };
@@ -326,13 +343,7 @@ fn compute_min_cut(
                 continue;
             }
             if let Some(j) = tile_index[nx as usize][ny as usize] {
-                add_edge(
-                    &mut builder,
-                    &mut capacities,
-                    num_tiles + i,
-                    j,
-                    INF_CAP,
-                );
+                add_edge(&mut builder, &mut capacities, num_tiles + i, j, INF_CAP);
             }
         }
     }
@@ -362,8 +373,7 @@ fn compute_min_cut(
     let snk = nodes[sink_idx];
 
     // --- 3. Run Dinic's max-flow algorithm ---
-    let (_value, _flow, mincut_nodes) =
-        dinic(&graph, src, snk, |e| capacities[graph.edge_id(e)]);
+    let (_value, _flow, mincut_nodes) = dinic(&graph, src, snk, |e| capacities[graph.edge_id(e)]);
 
     // --- 4. Extract rampart positions ---
     //
@@ -372,10 +382,7 @@ fn compute_min_cut(
     // the out-node is not. Those tiles are where we place ramparts.
     //
     // Build a fast lookup of cut-side nodes.
-    let cut_set: FnvHashSet<usize> = mincut_nodes
-        .iter()
-        .map(|n| graph.node_id(*n))
-        .collect();
+    let cut_set: FnvHashSet<usize> = mincut_nodes.iter().map(|n| graph.node_id(*n)).collect();
 
     let mut ramparts: Vec<Location> = Vec::new();
     for i in 0..num_tiles {
@@ -392,4 +399,108 @@ fn compute_min_cut(
     }
 
     ramparts
+}
+
+/// Validate that all non-mineral structures are on the defended (interior)
+/// side of the wall. Flood-fills from exit tiles, stopping at cut tiles
+/// and terrain walls. If any structure tile is reachable from exits without
+/// crossing a cut tile, the wall has a gap and the plan is invalid.
+///
+/// Returns `true` if all structures are defended, `false` otherwise.
+fn validate_all_structures_defended(
+    state: &PlacementState,
+    analysis: &AnalysisOutput,
+    terrain: &FastRoomTerrain,
+    cut_set: &FnvHashSet<Location>,
+) -> bool {
+    // Collect structure locations that must be defended.
+    // Skip roads (they don't need wall protection) and mineral-area
+    // structures (mineral infrastructure is optional and may be outside).
+    let mut must_defend: FnvHashSet<Location> = FnvHashSet::default();
+
+    // Build mineral area to exclude (same logic as ReachabilityLayer).
+    let mut mineral_area: FnvHashSet<Location> = FnvHashSet::default();
+    for (mineral_loc, _, _) in &analysis.mineral_distances {
+        mineral_area.insert(*mineral_loc);
+        let mx = mineral_loc.x();
+        let my = mineral_loc.y();
+        for &(dx, dy) in &NEIGHBORS_8 {
+            let nx = mx as i16 + dx as i16;
+            let ny = my as i16 + dy as i16;
+            if (0..50).contains(&nx) && (0..50).contains(&ny) {
+                mineral_area.insert(Location::from_coords(nx as u32, ny as u32));
+            }
+        }
+    }
+
+    for (loc, items) in &state.structures {
+        let has_non_road = items
+            .iter()
+            .any(|i| i.structure_type != StructureType::Road);
+        if !has_non_road {
+            continue;
+        }
+        if mineral_area.contains(loc) {
+            continue;
+        }
+        must_defend.insert(*loc);
+    }
+
+    if must_defend.is_empty() {
+        return true;
+    }
+
+    // Flood-fill from all exit tiles, stopping at cut tiles and walls.
+    // Any tile reachable by this fill is on the "outside" (exit side).
+    let exits = &analysis.exits.all;
+    let mut outside: FnvHashSet<Location> = FnvHashSet::default();
+    let mut queue: VecDeque<Location> = VecDeque::new();
+
+    for exit in exits {
+        if !cut_set.contains(exit) {
+            outside.insert(*exit);
+            queue.push_back(*exit);
+        }
+    }
+
+    while let Some(loc) = queue.pop_front() {
+        for &(dx, dy) in &NEIGHBORS_8 {
+            let nx = loc.x() as i16 + dx as i16;
+            let ny = loc.y() as i16 + dy as i16;
+            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+                continue;
+            }
+            let ux = nx as u8;
+            let uy = ny as u8;
+            let nloc = Location::from_coords(ux as u32, uy as u32);
+
+            if outside.contains(&nloc) {
+                continue;
+            }
+            if terrain.is_wall(ux, uy) {
+                continue;
+            }
+            // Cut tiles (walls/ramparts) block the flood-fill.
+            if cut_set.contains(&nloc) {
+                continue;
+            }
+
+            outside.insert(nloc);
+            queue.push_back(nloc);
+        }
+    }
+
+    // Check if any structure that must be defended is on the outside.
+    for loc in &must_defend {
+        if outside.contains(loc) {
+            trace!(
+                "Defense: structure at ({}, {}) is outside the wall (undefended)",
+                loc.x(),
+                loc.y()
+            );
+            return false;
+        }
+    }
+
+    true
 }

@@ -8,6 +8,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::plan::*;
 use crate::terrain::*;
 use log::*;
@@ -28,6 +29,7 @@ impl PlacementLayer for RoadPruneLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -37,6 +39,7 @@ impl PlacementLayer for RoadPruneLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -57,7 +60,11 @@ impl PlacementLayer for RoadPruneLayer {
         let all_road_locs: Vec<Location> = new_state
             .structures
             .iter()
-            .filter(|(_, items)| items.iter().any(|i| i.structure_type == StructureType::Road))
+            .filter(|(_, items)| {
+                items
+                    .iter()
+                    .any(|i| i.structure_type == StructureType::Road)
+            })
             .map(|(loc, _)| *loc)
             .collect();
 
@@ -82,7 +89,9 @@ impl PlacementLayer for RoadPruneLayer {
                 .structures
                 .iter()
                 .filter(|(_, items)| {
-                    items.iter().any(|i| i.structure_type == StructureType::Road)
+                    items
+                        .iter()
+                        .any(|i| i.structure_type == StructureType::Road)
                 })
                 .map(|(loc, _)| *loc)
                 .collect();
@@ -163,9 +172,7 @@ fn prune_redundant_roads(
 
     let baseline_structure_dists: Vec<(Location, u32)> = structure_locs
         .iter()
-        .filter_map(|&loc| {
-            best_adjacent_road_dist(loc, &baseline_dist).map(|dist| (loc, dist))
-        })
+        .filter_map(|&loc| best_adjacent_road_dist(loc, &baseline_dist).map(|dist| (loc, dist)))
         .collect();
 
     // Count how many road tiles are reachable from hub in the baseline.
@@ -176,7 +183,9 @@ fn prune_redundant_roads(
         .structures
         .iter()
         .filter(|(_, items)| {
-            items.iter().any(|i| i.structure_type == StructureType::Road)
+            items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Road)
         })
         .map(|(loc, _)| {
             let idx = loc.y() as usize * 50 + loc.x() as usize;
@@ -196,6 +205,14 @@ fn prune_redundant_roads(
         if is_adjacent_to_structure(state, road_loc) {
             continue;
         }
+
+        // Save the road's original RCL before removing so we can restore it.
+        let original_rcl = state.structures.get(&road_loc).and_then(|items| {
+            items
+                .iter()
+                .find(|i| i.structure_type == StructureType::Road)
+                .and_then(|i| i.required_rcl)
+        });
 
         // Tentatively remove the road.
         remove_road(state, road_loc);
@@ -223,12 +240,12 @@ fn prune_redundant_roads(
             expected_reachable -= 1;
         } else {
             // Removal would break connectivity or degrade path length.
-            // Restore the road.
-            state
-                .structures
-                .entry(road_loc)
-                .or_default()
-                .push(RoomItem::new(StructureType::Road, 1));
+            // Restore the road with its original RCL.
+            let restored = match original_rcl {
+                Some(rcl) => RoomItem::new(StructureType::Road, rcl),
+                None => RoomItem::new_auto_rcl(StructureType::Road),
+            };
+            state.structures.entry(road_loc).or_default().push(restored);
         }
     }
 
@@ -265,7 +282,11 @@ fn road_bfs(hub: Location, _terrain: &FastRoomTerrain, state: &PlacementState) -
             let is_road = state
                 .structures
                 .get(&loc)
-                .map(|items| items.iter().any(|i| i.structure_type == StructureType::Road))
+                .map(|items| {
+                    items
+                        .iter()
+                        .any(|i| i.structure_type == StructureType::Road)
+                })
                 .unwrap_or(false);
             if !is_road {
                 continue;
@@ -370,7 +391,11 @@ fn has_road_at(state: &PlacementState, loc: Location) -> bool {
     state
         .structures
         .get(&loc)
-        .map(|items| items.iter().any(|i| i.structure_type == StructureType::Road))
+        .map(|items| {
+            items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Road)
+        })
         .unwrap_or(false)
 }
 
@@ -412,7 +437,10 @@ fn count_road_neighbors(state: &PlacementState, loc: Location) -> u8 {
         }
         let nloc = Location::from_coords(nx as u32, ny as u32);
         if let Some(items) = state.structures.get(&nloc) {
-            if items.iter().any(|i| i.structure_type == StructureType::Road) {
+            if items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Road)
+            {
                 count += 1;
             }
         }

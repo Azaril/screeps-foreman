@@ -2,6 +2,7 @@
 //! Placed after DefenseLayer.
 
 use crate::layer::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::stamps::tower::tower_damage_at_range;
 use crate::terrain::*;
 
@@ -17,6 +18,7 @@ impl PlacementLayer for TowerCoverageScoreLayer {
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -26,6 +28,7 @@ impl PlacementLayer for TowerCoverageScoreLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {

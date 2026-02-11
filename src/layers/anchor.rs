@@ -5,6 +5,7 @@
 use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 /// Selects a hub position from valid anchor locations.
@@ -34,7 +35,12 @@ impl PlacementLayer for AnchorLayer {
         "anchor"
     }
 
-    fn candidate_count(&self, _state: &PlacementState, _terrain: &FastRoomTerrain) -> Option<usize> {
+    fn candidate_count(
+        &self,
+        _state: &PlacementState,
+        _analysis: &AnalysisOutput,
+        _terrain: &FastRoomTerrain,
+    ) -> Option<usize> {
         None
     }
 
@@ -42,6 +48,7 @@ impl PlacementLayer for AnchorLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         let min_dt = self.min_dist_transform;
@@ -60,7 +67,7 @@ impl PlacementLayer for AnchorLayer {
             let mut x = border;
             while x < ROOM_WIDTH - border {
                 if !terrain.is_wall(x, y) {
-                    let dt = *state.analysis.dist_transform.get(x as usize, y as usize);
+                    let dt = *analysis.dist_transform.get(x as usize, y as usize);
                     if dt >= min_dt {
                         positions.push((x, y, dt));
                     }
@@ -72,11 +79,7 @@ impl PlacementLayer for AnchorLayer {
 
         // Sort by distance transform descending (most open areas first),
         // breaking ties by position for determinism.
-        positions.sort_by(|a, b| {
-            b.2.cmp(&a.2)
-                .then(a.1.cmp(&b.1))
-                .then(a.0.cmp(&b.0))
-        });
+        positions.sort_by(|a, b| b.2.cmp(&a.2).then(a.1.cmp(&b.1)).then(a.0.cmp(&b.0)));
 
         if index >= positions.len() {
             return None;

@@ -3,6 +3,7 @@
 
 use crate::layer::*;
 use crate::location::*;
+use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
 use screeps::constants::StructureType;
@@ -16,13 +17,14 @@ impl PlacementLayer for MineralInfraLayer {
         "mineral_infra"
     }
 
-    fn is_applicable(&self, state: &PlacementState) -> bool {
-        !state.analysis.mineral_distances.is_empty()
+    fn is_applicable(&self, _state: &PlacementState, analysis: &AnalysisOutput) -> bool {
+        !analysis.mineral_distances.is_empty()
     }
 
     fn candidate_count(
         &self,
         _state: &PlacementState,
+        _analysis: &AnalysisOutput,
         _terrain: &FastRoomTerrain,
     ) -> Option<usize> {
         Some(1)
@@ -32,6 +34,7 @@ impl PlacementLayer for MineralInfraLayer {
         &self,
         index: usize,
         state: &PlacementState,
+        analysis: &AnalysisOutput,
         terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
@@ -40,7 +43,7 @@ impl PlacementLayer for MineralInfraLayer {
 
         let mut new_state = state.clone();
 
-        for (mineral_loc, _, _) in &state.analysis.mineral_distances {
+        for (mineral_loc, _, _) in &analysis.mineral_distances {
             let mx = mineral_loc.x();
             let my = mineral_loc.y();
 
@@ -57,7 +60,10 @@ impl PlacementLayer for MineralInfraLayer {
                 }
                 let ux = x as u8;
                 let uy = y as u8;
-                if terrain.is_wall(ux, uy) || new_state.has_any_structure(ux, uy) {
+                if terrain.is_wall(ux, uy)
+                    || new_state.has_any_structure(ux, uy)
+                    || new_state.is_excluded(ux, uy)
+                {
                     continue;
                 }
                 new_state.place_structure(ux, uy, StructureType::Container, 6);
