@@ -29,7 +29,7 @@ pub fn hub_stamps() -> Vec<Stamp> {
             sp(StructureType::Link, 0, -1, 5),
             sp(StructureType::Spawn, -1, 0, 1),
             sp(StructureType::Spawn, 1, 0, 7),
-            sp(StructureType::Extension, -1, 1, 2),
+            sp_auto(StructureType::Extension, -1, 1),
             sp(StructureType::Terminal, 1, 1, 6),
             // Hub center road (required -- filler stands here)
             sp_auto(StructureType::Road, 0, 0),

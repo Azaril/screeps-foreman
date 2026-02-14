@@ -53,21 +53,21 @@ fn extension_stamp_4x4() -> ExtensionStampDef {
             sp_auto(StructureType::Road, 0, 3),
             sp_auto(StructureType::Road, 3, 3),
             // Extensions — row y=0 (between corner roads)
-            sp_opt(StructureType::Extension, 1, 0, 2),
-            sp_opt(StructureType::Extension, 2, 0, 2),
+            sp_opt_auto(StructureType::Extension, 1, 0),
+            sp_opt_auto(StructureType::Extension, 2, 0),
             // Extensions — row y=1 (full width)
-            sp_opt(StructureType::Extension, 0, 1, 2),
-            sp_opt(StructureType::Extension, 1, 1, 2),
-            sp_opt(StructureType::Extension, 2, 1, 2),
-            sp_opt(StructureType::Extension, 3, 1, 2),
+            sp_opt_auto(StructureType::Extension, 0, 1),
+            sp_opt_auto(StructureType::Extension, 1, 1),
+            sp_opt_auto(StructureType::Extension, 2, 1),
+            sp_opt_auto(StructureType::Extension, 3, 1),
             // Extensions — row y=2 (full width)
-            sp_opt(StructureType::Extension, 0, 2, 2),
-            sp_opt(StructureType::Extension, 1, 2, 2),
-            sp_opt(StructureType::Extension, 2, 2, 2),
-            sp_opt(StructureType::Extension, 3, 2, 2),
+            sp_opt_auto(StructureType::Extension, 0, 2),
+            sp_opt_auto(StructureType::Extension, 1, 2),
+            sp_opt_auto(StructureType::Extension, 2, 2),
+            sp_opt_auto(StructureType::Extension, 3, 2),
             // Extensions — row y=3 (between corner roads)
-            sp_opt(StructureType::Extension, 1, 3, 2),
-            sp_opt(StructureType::Extension, 2, 3, 2),
+            sp_opt_auto(StructureType::Extension, 1, 3),
+            sp_opt_auto(StructureType::Extension, 2, 3),
             // Border roads (optional — walkability around the cluster)
             // Top border (y=-1), inner positions only
             sp_opt_auto(StructureType::Road, 1, -1),
@@ -119,17 +119,17 @@ fn extension_stamp_5x3_corridor() -> ExtensionStampDef {
             sp_auto(StructureType::Road, 3, 1),
             sp_auto(StructureType::Road, 4, 1),
             // Extensions — row y=0 (above road line)
-            sp_opt(StructureType::Extension, 0, 0, 2),
-            sp_opt(StructureType::Extension, 1, 0, 2),
-            sp_opt(StructureType::Extension, 2, 0, 2),
-            sp_opt(StructureType::Extension, 3, 0, 2),
-            sp_opt(StructureType::Extension, 4, 0, 2),
+            sp_opt_auto(StructureType::Extension, 0, 0),
+            sp_opt_auto(StructureType::Extension, 1, 0),
+            sp_opt_auto(StructureType::Extension, 2, 0),
+            sp_opt_auto(StructureType::Extension, 3, 0),
+            sp_opt_auto(StructureType::Extension, 4, 0),
             // Extensions — row y=2 (below road line)
-            sp_opt(StructureType::Extension, 0, 2, 2),
-            sp_opt(StructureType::Extension, 1, 2, 2),
-            sp_opt(StructureType::Extension, 2, 2, 2),
-            sp_opt(StructureType::Extension, 3, 2, 2),
-            sp_opt(StructureType::Extension, 4, 2, 2),
+            sp_opt_auto(StructureType::Extension, 0, 2),
+            sp_opt_auto(StructureType::Extension, 1, 2),
+            sp_opt_auto(StructureType::Extension, 2, 2),
+            sp_opt_auto(StructureType::Extension, 3, 2),
+            sp_opt_auto(StructureType::Extension, 4, 2),
             // Border roads (optional — walkability around the cluster)
             // Top border (y=-1)
             sp_opt_auto(StructureType::Road, 0, -1),
@@ -184,11 +184,11 @@ fn extension_stamp_3x3() -> ExtensionStampDef {
             sp_auto(StructureType::Road, 0, 2),
             sp_auto(StructureType::Road, 2, 2),
             // Extensions — cross/plus shape
-            sp_opt(StructureType::Extension, 1, 0, 2), // top
-            sp_opt(StructureType::Extension, 0, 1, 2), // left
-            sp_opt(StructureType::Extension, 1, 1, 2), // center
-            sp_opt(StructureType::Extension, 2, 1, 2), // right
-            sp_opt(StructureType::Extension, 1, 2, 2), // bottom
+            sp_opt_auto(StructureType::Extension, 1, 0), // top
+            sp_opt_auto(StructureType::Extension, 0, 1), // left
+            sp_opt_auto(StructureType::Extension, 1, 1), // center
+            sp_opt_auto(StructureType::Extension, 2, 1), // right
+            sp_opt_auto(StructureType::Extension, 1, 2), // bottom
             // Border roads (optional)
             // Top border (y=-1), center only
             sp_opt_auto(StructureType::Road, 1, -1),
@@ -223,10 +223,10 @@ fn extension_stamp_2x2() -> ExtensionStampDef {
         name: "ext_2x2",
         placements: vec![
             // Extensions
-            sp_opt(StructureType::Extension, 0, 0, 2),
-            sp_opt(StructureType::Extension, 1, 0, 2),
-            sp_opt(StructureType::Extension, 0, 1, 2),
-            sp_opt(StructureType::Extension, 1, 1, 2),
+            sp_opt_auto(StructureType::Extension, 0, 0),
+            sp_opt_auto(StructureType::Extension, 1, 0),
+            sp_opt_auto(StructureType::Extension, 0, 1),
+            sp_opt_auto(StructureType::Extension, 1, 1),
             // Border roads (optional), cardinal positions only
             // Top border (y=-1)
             sp_opt_auto(StructureType::Road, 0, -1),
