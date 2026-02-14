@@ -4,17 +4,17 @@ use screeps::constants::StructureType;
 
 /// Generate the extension stamp hierarchy from largest to smallest.
 ///
-/// Each stamp is an NxN block with corners replaced by roads and the
-/// remaining positions used for extensions.  Border roads along the
-/// cardinal edges provide walkability; corner border roads are omitted
-/// because diagonal movement lets creeps reach the next edge directly.
-/// All extensions are within Chebyshev distance 1 of at least one road.
+/// Each stamp guarantees every extension is within Chebyshev distance 1 of
+/// at least one road tile (the fill-range constraint). Stamps are tried
+/// largest-first: 4x4, 5x3 corridor, 3x3, 2x2.
 ///
-/// Stamps are returned largest-first: 4x4, 3x3, 2x2.
-/// The caller should try them in order and fall back to smaller sizes.
+/// The 5x3 corridor stamp has connected internal roads (a straight line),
+/// allowing a filler creep to walk through filling extensions without
+/// backtracking -- useful in constrained terrain where 4x4 blocks don't fit.
 pub fn extension_stamps() -> Vec<ExtensionStampDef> {
     vec![
         extension_stamp_4x4(),
+        extension_stamp_5x3_corridor(),
         extension_stamp_3x3(),
         extension_stamp_2x2(),
     ]
@@ -87,6 +87,76 @@ fn extension_stamp_4x4() -> ExtensionStampDef {
     ExtensionStampDef {
         stamp,
         min_extensions: 8,
+    }
+}
+
+/// 5x3 corridor: 10 extensions flanking a connected 5-road line.
+///
+/// ```text
+///     r  r  r  r  r
+///   r E  E  E  E  E  r
+///   r R  R  R  R  R  r
+///   r E  E  E  E  E  r
+///     r  r  r  r  r
+/// ```
+///
+/// R = connected road line (required), E = extension (optional),
+/// r = border road (optional).
+///
+/// The 5 internal roads form a connected horizontal path. A filler creep
+/// walks left-to-right along the road, filling 2 extensions per stop (one
+/// above, one below). This gives 10 extensions with zero-backtrack fill.
+///
+/// Fill analysis: 5 stops x 2 ext/stop = 10 extensions, linear path.
+fn extension_stamp_5x3_corridor() -> ExtensionStampDef {
+    let stamp = Stamp {
+        name: "ext_5x3_corridor",
+        placements: vec![
+            // Connected road line (required) — row y=1
+            sp_auto(StructureType::Road, 0, 1),
+            sp_auto(StructureType::Road, 1, 1),
+            sp_auto(StructureType::Road, 2, 1),
+            sp_auto(StructureType::Road, 3, 1),
+            sp_auto(StructureType::Road, 4, 1),
+            // Extensions — row y=0 (above road line)
+            sp_opt(StructureType::Extension, 0, 0, 2),
+            sp_opt(StructureType::Extension, 1, 0, 2),
+            sp_opt(StructureType::Extension, 2, 0, 2),
+            sp_opt(StructureType::Extension, 3, 0, 2),
+            sp_opt(StructureType::Extension, 4, 0, 2),
+            // Extensions — row y=2 (below road line)
+            sp_opt(StructureType::Extension, 0, 2, 2),
+            sp_opt(StructureType::Extension, 1, 2, 2),
+            sp_opt(StructureType::Extension, 2, 2, 2),
+            sp_opt(StructureType::Extension, 3, 2, 2),
+            sp_opt(StructureType::Extension, 4, 2, 2),
+            // Border roads (optional — walkability around the cluster)
+            // Top border (y=-1)
+            sp_opt_auto(StructureType::Road, 0, -1),
+            sp_opt_auto(StructureType::Road, 1, -1),
+            sp_opt_auto(StructureType::Road, 2, -1),
+            sp_opt_auto(StructureType::Road, 3, -1),
+            sp_opt_auto(StructureType::Road, 4, -1),
+            // Bottom border (y=3)
+            sp_opt_auto(StructureType::Road, 0, 3),
+            sp_opt_auto(StructureType::Road, 1, 3),
+            sp_opt_auto(StructureType::Road, 2, 3),
+            sp_opt_auto(StructureType::Road, 3, 3),
+            sp_opt_auto(StructureType::Road, 4, 3),
+            // Left border (x=-1, y=0..2)
+            sp_opt_auto(StructureType::Road, -1, 0),
+            sp_opt_auto(StructureType::Road, -1, 1),
+            sp_opt_auto(StructureType::Road, -1, 2),
+            // Right border (x=5, y=0..2)
+            sp_opt_auto(StructureType::Road, 5, 0),
+            sp_opt_auto(StructureType::Road, 5, 1),
+            sp_opt_auto(StructureType::Road, 5, 2),
+        ],
+        min_radius: 5,
+    };
+    ExtensionStampDef {
+        stamp,
+        min_extensions: 6,
     }
 }
 

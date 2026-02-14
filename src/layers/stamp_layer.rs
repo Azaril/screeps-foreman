@@ -148,12 +148,19 @@ pub fn hub_stamp_layer() -> StampLayer {
         anchor_landmark: "hub",
         stamps,
         search_radius: 0,
-        landmark_mappings: vec![(StructureType::Spawn, "spawns")],
+        landmark_mappings: vec![
+            (StructureType::Spawn, "spawns"),
+            (StructureType::Extension, "hub_extensions"),
+        ],
     }
 }
 
 /// Create a StampLayer that places the lab stamp near the "hub" landmark.
-pub fn lab_stamp_layer() -> GreedyStampLayer {
+///
+/// Uses `ScoredStampLayer` which collects all valid placements within the
+/// search radius and picks the one with the best composite score (distance
+/// to hub + road adjacency + open staging area).
+pub fn lab_stamp_layer() -> ScoredStampLayer {
     use crate::stamps::lab::{lab_stamps, validate_lab_stamp};
 
     let stamps: Vec<_> = lab_stamps()
@@ -165,7 +172,7 @@ pub fn lab_stamp_layer() -> GreedyStampLayer {
         "lab stamps failed validation"
     );
 
-    GreedyStampLayer {
+    ScoredStampLayer {
         layer_name: "lab_stamp",
         anchor_landmark: "hub",
         stamps,
@@ -279,4 +286,235 @@ impl PlacementLayer for GreedyStampLayer {
         // No valid placement found
         Some(Err(()))
     }
+}
+
+/// A deterministic stamp layer that evaluates all valid placements within the
+/// search radius and picks the one with the best composite score. Unlike
+/// `GreedyStampLayer` (which takes the first valid placement closest to anchor),
+/// this layer considers road adjacency and open staging area around the stamp.
+///
+/// Score components:
+/// 1. **Distance** (weight 3.0): Chebyshev distance from anchor, normalized.
+///    Closer is better.
+/// 2. **Road adjacency** (weight 2.0): Number of non-road structure tiles in
+///    the stamp that have an adjacent road tile (from existing roads or stamp
+///    roads). More road-adjacent structures = better creep access.
+/// 3. **Open staging area** (weight 1.0): Number of open (walkable, non-occupied)
+///    tiles adjacent to the stamp footprint. More open space = less congestion
+///    for creeps loading/unloading.
+pub struct ScoredStampLayer {
+    pub layer_name: &'static str,
+    pub anchor_landmark: &'static str,
+    pub stamps: Vec<Stamp>,
+    pub search_radius: u8,
+    pub landmark_mappings: Vec<(StructureType, &'static str)>,
+}
+
+impl PlacementLayer for ScoredStampLayer {
+    fn name(&self) -> &str {
+        self.layer_name
+    }
+
+    fn candidate_count(
+        &self,
+        _state: &PlacementState,
+        _analysis: &AnalysisOutput,
+        _terrain: &FastRoomTerrain,
+    ) -> Option<usize> {
+        Some(1)
+    }
+
+    fn candidate(
+        &self,
+        index: usize,
+        state: &PlacementState,
+        _analysis: &AnalysisOutput,
+        terrain: &FastRoomTerrain,
+    ) -> Option<Result<PlacementState, ()>> {
+        if index > 0 {
+            return None;
+        }
+
+        let anchor = match state.get_landmark(self.anchor_landmark) {
+            Some(loc) => loc,
+            None => return Some(Err(())),
+        };
+        let ax = anchor.x() as i16;
+        let ay = anchor.y() as i16;
+
+        type PlacementList = Vec<(u8, u8, StructureType, Option<u8>)>;
+
+        // Collect all valid placements with their scores.
+        let mut best_score = f32::NEG_INFINITY;
+        let mut best_placements: Option<PlacementList> = None;
+
+        for dist in 0..=self.search_radius as i16 {
+            for dy in -dist..=dist {
+                for dx in -dist..=dist {
+                    if dx.abs().max(dy.abs()) != dist {
+                        continue;
+                    }
+                    let x = ax + dx;
+                    let y = ay + dy;
+                    if !(2..48).contains(&x) || !(2..48).contains(&y) {
+                        continue;
+                    }
+                    let ux = x as u8;
+                    let uy = y as u8;
+
+                    for stamp in &self.stamps {
+                        if !stamp.fits_at(ux, uy, terrain, &state.excluded) {
+                            continue;
+                        }
+
+                        let placements = stamp.place_at_filtered(
+                            ux,
+                            uy,
+                            terrain,
+                            &state.structures,
+                            &state.excluded,
+                        );
+
+                        let has_overlap = placements
+                            .iter()
+                            .any(|(px, py, _st, _)| state.has_any_structure(*px, *py));
+                        if has_overlap {
+                            continue;
+                        }
+
+                        // Score this placement
+                        let score = score_placement(
+                            &placements,
+                            dist,
+                            self.search_radius as i16,
+                            state,
+                            terrain,
+                        );
+
+                        if score > best_score {
+                            best_score = score;
+                            best_placements = Some(placements);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply the best placement
+        if let Some(placements) = best_placements {
+            let mut new_state = state.clone();
+            for (px, py, st, rcl) in &placements {
+                match rcl {
+                    Some(r) => new_state.place_structure(*px, *py, *st, *r),
+                    None => new_state.place_structure_auto_rcl(*px, *py, *st),
+                }
+                for (mapped_type, landmark_name) in &self.landmark_mappings {
+                    if st == mapped_type {
+                        new_state.add_to_landmark_set(
+                            *landmark_name,
+                            Location::from_coords(*px as u32, *py as u32),
+                        );
+                    }
+                }
+            }
+            Some(Ok(new_state))
+        } else {
+            Some(Err(()))
+        }
+    }
+}
+
+/// Score a stamp placement based on distance, road adjacency, and open staging area.
+fn score_placement(
+    placements: &[(u8, u8, StructureType, Option<u8>)],
+    dist: i16,
+    max_dist: i16,
+    state: &PlacementState,
+    terrain: &FastRoomTerrain,
+) -> f32 {
+    // 1. Distance score: closer to anchor is better
+    let distance_score = if max_dist > 0 {
+        1.0 - (dist as f32 / max_dist as f32)
+    } else {
+        1.0
+    };
+
+    // Build sets of road tiles and non-road structure tiles from this stamp
+    let mut stamp_roads: fnv::FnvHashSet<(u8, u8)> = fnv::FnvHashSet::default();
+    let mut stamp_structures: Vec<(u8, u8)> = Vec::new();
+    let mut stamp_footprint: fnv::FnvHashSet<(u8, u8)> = fnv::FnvHashSet::default();
+
+    for &(px, py, st, _) in placements {
+        stamp_footprint.insert((px, py));
+        if st == StructureType::Road {
+            stamp_roads.insert((px, py));
+        } else {
+            stamp_structures.push((px, py));
+        }
+    }
+
+    // 2. Road adjacency: count non-road structures adjacent to a road
+    let mut road_adjacent_count = 0u32;
+    for &(sx, sy) in &stamp_structures {
+        let has_adjacent_road = NEIGHBORS_8.iter().any(|&(ddx, ddy)| {
+            let nx = sx as i16 + ddx as i16;
+            let ny = sy as i16 + ddy as i16;
+            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+                return false;
+            }
+            let ux = nx as u8;
+            let uy = ny as u8;
+            // Check stamp roads or existing roads in state
+            if stamp_roads.contains(&(ux, uy)) {
+                return true;
+            }
+            let loc = Location::from_coords(ux as u32, uy as u32);
+            state
+                .structures
+                .get(&loc)
+                .map(|items| {
+                    items
+                        .iter()
+                        .any(|i| i.structure_type == StructureType::Road)
+                })
+                .unwrap_or(false)
+        });
+        if has_adjacent_road {
+            road_adjacent_count += 1;
+        }
+    }
+    let road_adjacency_score = if !stamp_structures.is_empty() {
+        road_adjacent_count as f32 / stamp_structures.len() as f32
+    } else {
+        0.0
+    };
+
+    // 3. Open staging area: count open tiles adjacent to the stamp footprint
+    let mut open_count = 0u32;
+    let mut checked: fnv::FnvHashSet<(u8, u8)> = fnv::FnvHashSet::default();
+    for &(fx, fy) in &stamp_footprint {
+        for &(ddx, ddy) in &NEIGHBORS_8 {
+            let nx = fx as i16 + ddx as i16;
+            let ny = fy as i16 + ddy as i16;
+            if !(1..49).contains(&nx) || !(1..49).contains(&ny) {
+                continue;
+            }
+            let ux = nx as u8;
+            let uy = ny as u8;
+            if stamp_footprint.contains(&(ux, uy)) {
+                continue;
+            }
+            if !checked.insert((ux, uy)) {
+                continue;
+            }
+            if !terrain.is_wall(ux, uy) && !state.is_occupied(ux, uy) {
+                open_count += 1;
+            }
+        }
+    }
+    // Normalize: ~20 open tiles around a lab cluster is good
+    let open_score = (open_count as f32 / 20.0).min(1.0);
+
+    // Composite score
+    distance_score * 3.0 + road_adjacency_score * 2.0 + open_score * 1.0
 }

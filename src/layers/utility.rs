@@ -1,5 +1,10 @@
-//! UtilityLayer: Places observer and nuker.
+//! UtilityLayer: Places observer, factory, power spawn, and nuker.
 //! Low branching -- deterministic placement.
+//!
+//! Factory and PowerSpawn are placed near the hub (within 2-3 tiles) so they
+//! remain accessible to the filler creep with minimal movement. Nuker and
+//! Observer are placed at moderate distance since they are rarely interacted
+//! with.
 
 use crate::layer::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -7,7 +12,9 @@ use crate::terrain::*;
 
 use screeps::constants::StructureType;
 
-/// Places observer (and nuker if not already placed by hub stamp).
+/// Places observer, factory, power spawn, and nuker near the hub.
+/// Factory and PowerSpawn prefer positions within 2-3 tiles of hub for
+/// easy filler access. Observer and Nuker are placed farther out.
 /// Deterministic (1 candidate).
 pub struct UtilityLayer;
 
@@ -45,30 +52,122 @@ impl PlacementLayer for UtilityLayer {
         let ay = hub.y() as i16;
         let mut new_state = state.clone();
 
+        // Place factory near hub (within 2-3 tiles) -- needs frequent filler access
+        if !has_structure_type(&new_state, StructureType::Factory) {
+            place_near_hub(
+                ax,
+                ay,
+                2,
+                4,
+                terrain,
+                &mut new_state,
+                StructureType::Factory,
+                7,
+            );
+        }
+
+        // Place power spawn near hub (within 2-3 tiles) -- needs frequent filler access
+        if !has_structure_type(&new_state, StructureType::PowerSpawn) {
+            place_near_hub(
+                ax,
+                ay,
+                2,
+                4,
+                terrain,
+                &mut new_state,
+                StructureType::PowerSpawn,
+                8,
+            );
+        }
+
+        // Place nuker at moderate distance from hub
+        if !has_structure_type(&new_state, StructureType::Nuker) {
+            place_near_hub(
+                ax,
+                ay,
+                2,
+                6,
+                terrain,
+                &mut new_state,
+                StructureType::Nuker,
+                8,
+            );
+        }
+
         // Place observer at a moderate distance from hub
-        'observer: for radius in 3..=10i16 {
-            for dy in -radius..=radius {
-                for dx in -radius..=radius {
-                    if dx.abs().max(dy.abs()) != radius {
-                        continue;
-                    }
-                    let x = ax + dx;
-                    let y = ay + dy;
-                    if (2..48).contains(&x) && (2..48).contains(&y) {
-                        let ux = x as u8;
-                        let uy = y as u8;
-                        if !terrain.is_wall(ux, uy)
-                            && !new_state.has_any_structure(ux, uy)
-                            && !new_state.is_excluded(ux, uy)
-                        {
-                            new_state.place_structure(ux, uy, StructureType::Observer, 8);
-                            break 'observer;
-                        }
-                    }
-                }
-            }
+        if !has_structure_type(&new_state, StructureType::Observer) {
+            place_near_hub(
+                ax,
+                ay,
+                3,
+                10,
+                terrain,
+                &mut new_state,
+                StructureType::Observer,
+                8,
+            );
         }
 
         Some(Ok(new_state))
     }
+}
+
+/// Check if a structure type already exists in the placement state.
+fn has_structure_type(state: &PlacementState, st: StructureType) -> bool {
+    state
+        .structures
+        .values()
+        .any(|items| items.iter().any(|i| i.structure_type == st))
+}
+
+/// Place a structure at the nearest available position within a distance range
+/// from the hub. Searches outward from `min_radius` to `max_radius`.
+#[allow(clippy::too_many_arguments)]
+fn place_near_hub(
+    ax: i16,
+    ay: i16,
+    min_radius: i16,
+    max_radius: i16,
+    terrain: &FastRoomTerrain,
+    state: &mut PlacementState,
+    structure_type: StructureType,
+    rcl: u8,
+) {
+    for radius in min_radius..=max_radius {
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx.abs().max(dy.abs()) != radius {
+                    continue;
+                }
+                let x = ax + dx;
+                let y = ay + dy;
+                if (2..48).contains(&x) && (2..48).contains(&y) {
+                    let ux = x as u8;
+                    let uy = y as u8;
+                    if !terrain.is_wall(ux, uy)
+                        && !state.has_any_structure(ux, uy)
+                        && !state.is_excluded(ux, uy)
+                        && !has_road_at(state, ux, uy)
+                    {
+                        state.place_structure(ux, uy, structure_type, rcl);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Check if a tile has a road placed on it.
+fn has_road_at(state: &PlacementState, x: u8, y: u8) -> bool {
+    let loc = crate::location::Location::from_coords(x as u32, y as u32);
+    state
+        .structures
+        .get(&loc)
+        .map(|items| {
+            items
+                .iter()
+                .any(|i| i.structure_type == StructureType::Road)
+        })
+        .unwrap_or(false)
 }

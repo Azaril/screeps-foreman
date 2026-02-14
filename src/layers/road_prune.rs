@@ -175,8 +175,12 @@ fn prune_redundant_roads(
         .filter_map(|&loc| best_adjacent_road_dist(loc, &baseline_dist).map(|dist| (loc, dist)))
         .collect();
 
-    // Count how many road tiles are reachable from hub in the baseline.
-    let baseline_reachable_roads = count_reachable_roads(&baseline_dist, state);
+    // Total number of road tiles (reachable or not). Used to detect when
+    // removing a road disconnects other roads: if the number of unreachable
+    // roads increases, the removed road was a bridge.
+    let total_roads = count_total_roads(state);
+    let baseline_reachable = count_reachable_roads(&baseline_dist, state);
+    let mut expected_unreachable = total_roads - baseline_reachable;
 
     // Collect candidate road tiles sorted by decreasing distance from hub.
     let mut road_candidates: Vec<(Location, u32)> = state
@@ -195,9 +199,6 @@ fn prune_redundant_roads(
 
     // Sort farthest first.
     road_candidates.sort_by_key(|r| Reverse(r.1));
-
-    // Track how many reachable roads we expect after removals so far.
-    let mut expected_reachable = baseline_reachable_roads;
 
     for (road_loc, _) in road_candidates {
         // Skip roads adjacent to non-road structures (they directly serve
@@ -220,12 +221,13 @@ fn prune_redundant_roads(
         // Recompute road BFS from hub.
         let new_dist = road_bfs(hub, terrain, state);
 
-        // Safety check 1: no road tile that was reachable should become
-        // unreachable.  This protects long-distance trunk roads: removing a
-        // segment in the middle would disconnect everything beyond it.
+        // Safety check 1: removing this road must not increase the number
+        // of unreachable roads. If it does, this road was a bridge connecting
+        // other roads to the hub network.
+        let new_total = count_total_roads(state);
         let new_reachable = count_reachable_roads(&new_dist, state);
-        // We removed one road, so the expected count drops by 1.
-        let ok_connectivity = new_reachable >= expected_reachable - 1;
+        let new_unreachable = new_total - new_reachable;
+        let ok_connectivity = new_unreachable <= expected_unreachable;
 
         // Safety check 2: no structure's best adjacent road distance should
         // increase (preserves path length).
@@ -237,7 +239,9 @@ fn prune_redundant_roads(
         if ok_connectivity && ok_distance {
             // Road is truly redundant -- keep it removed.
             removed += 1;
-            expected_reachable -= 1;
+            // The removed road is gone from total; update expected_unreachable
+            // for the next iteration.
+            expected_unreachable = new_unreachable;
         } else {
             // Removal would break connectivity or degrade path length.
             // Restore the road with its original RCL.
@@ -251,6 +255,10 @@ fn prune_redundant_roads(
 
     removed
 }
+
+// ---------------------------------------------------------------------------
+// Road BFS and counting helpers
+// ---------------------------------------------------------------------------
 
 /// BFS over road tiles only, returning distances from hub.
 /// Non-road tiles are impassable (distance = u32::MAX).
@@ -311,6 +319,20 @@ fn count_reachable_roads(road_dist: &[u32], state: &PlacementState) -> u32 {
             if road_dist[idx] != u32::MAX {
                 count += 1;
             }
+        }
+    }
+    count
+}
+
+/// Count total road tiles in the state (reachable or not).
+fn count_total_roads(state: &PlacementState) -> u32 {
+    let mut count = 0u32;
+    for items in state.structures.values() {
+        if items
+            .iter()
+            .any(|i| i.structure_type == StructureType::Road)
+        {
+            count += 1;
         }
     }
     count

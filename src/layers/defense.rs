@@ -205,16 +205,23 @@ fn classify_wall_rampart(
 
 /// Build the set of tiles that the min-cut must protect.
 ///
-/// Valuable structures (spawns, towers, labs, hub) get a 3-tile buffer so that
-/// ramparts end up at least 3 tiles away. Mining infrastructure (source
-/// containers, mineral containers, extractors) gets no buffer -- they only need
-/// to be inside the wall, not at a safe distance.
+/// The protected region is built in layers:
+/// 1. Hub area: 8-tile radius around the hub provides the core protected zone.
+/// 2. Valuable structures (spawns, towers, labs) get a 3-tile buffer.
+/// 3. All occupied structure tiles are protected with no extra buffer.
+/// 4. Mining infrastructure (source/mineral containers) gets no buffer.
+///
+/// Exit tiles (row/col 0 or 49) are excluded from the protected region to
+/// avoid creating an impossible min-cut where source and sink overlap.
 fn build_protected_region(
     hub: Location,
     state: &PlacementState,
     terrain: &FastRoomTerrain,
 ) -> FnvHashSet<(u8, u8)> {
     let mut protected: FnvHashSet<(u8, u8)> = FnvHashSet::default();
+
+    // Hub area: ensure a generous protected zone around the hub
+    expand_region(std::iter::once(hub), 8, terrain, &mut protected);
 
     // Valuable structures: expand by 3 tiles
     let hub_loc = state.get_landmark("hub");
@@ -226,9 +233,6 @@ fn build_protected_region(
         .chain(hub_loc.iter())
         .copied();
     expand_region(valuable, 3, terrain, &mut protected);
-
-    // Hub area: ensure a generous protected zone around the hub
-    expand_region(std::iter::once(hub), 8, terrain, &mut protected);
 
     // All occupied structure tiles are protected with no extra buffer --
     // this catches everything (extensions, roads, links, etc.) that should
@@ -247,6 +251,11 @@ fn build_protected_region(
         .chain(mineral_container_loc.iter())
         .copied();
     expand_region(mining, 0, terrain, &mut protected);
+
+    // Remove exit tiles from the protected region. Exit tiles are source
+    // nodes in the flow network; if they are also sink-connected the
+    // min-cut becomes degenerate.
+    protected.retain(|&(x, y)| x > 0 && x < 49 && y > 0 && y < 49);
 
     protected
 }
@@ -401,10 +410,14 @@ fn compute_min_cut(
     ramparts
 }
 
-/// Validate that all non-mineral structures are on the defended (interior)
-/// side of the wall. Flood-fills from exit tiles, stopping at cut tiles
-/// and terrain walls. If any structure tile is reachable from exits without
-/// crossing a cut tile, the wall has a gap and the plan is invalid.
+/// Validate that all core structures are on the defended (interior) side of
+/// the wall. Flood-fills from exit tiles, stopping at cut tiles and terrain
+/// walls. If any structure tile is reachable from exits without crossing a
+/// cut tile, the wall has a gap and the plan is invalid.
+///
+/// Source and mineral infrastructure (containers, links near sources/minerals)
+/// is excluded from the check because these structures may legitimately sit
+/// outside the wall when the source or mineral is near an exit.
 ///
 /// Returns `true` if all structures are defended, `false` otherwise.
 fn validate_all_structures_defended(
@@ -414,21 +427,38 @@ fn validate_all_structures_defended(
     cut_set: &FnvHashSet<Location>,
 ) -> bool {
     // Collect structure locations that must be defended.
-    // Skip roads (they don't need wall protection) and mineral-area
-    // structures (mineral infrastructure is optional and may be outside).
+    // Skip roads (they don't need wall protection) and remote-area
+    // structures (mineral and source infrastructure may be outside the wall
+    // when the source/mineral is near an exit).
     let mut must_defend: FnvHashSet<Location> = FnvHashSet::default();
 
     // Build mineral area to exclude (same logic as ReachabilityLayer).
-    let mut mineral_area: FnvHashSet<Location> = FnvHashSet::default();
+    let mut remote_area: FnvHashSet<Location> = FnvHashSet::default();
     for (mineral_loc, _, _) in &analysis.mineral_distances {
-        mineral_area.insert(*mineral_loc);
+        remote_area.insert(*mineral_loc);
         let mx = mineral_loc.x();
         let my = mineral_loc.y();
         for &(dx, dy) in &NEIGHBORS_8 {
             let nx = mx as i16 + dx as i16;
             let ny = my as i16 + dy as i16;
             if (0..50).contains(&nx) && (0..50).contains(&ny) {
-                mineral_area.insert(Location::from_coords(nx as u32, ny as u32));
+                remote_area.insert(Location::from_coords(nx as u32, ny as u32));
+            }
+        }
+    }
+
+    // Build source area to exclude: source tiles and their immediate
+    // neighbors may host containers and links that legitimately sit
+    // outside the wall when the source is near an exit.
+    for (source_loc, _, _) in &analysis.source_distances {
+        remote_area.insert(*source_loc);
+        let sx = source_loc.x();
+        let sy = source_loc.y();
+        for &(dx, dy) in &NEIGHBORS_8 {
+            let nx = sx as i16 + dx as i16;
+            let ny = sy as i16 + dy as i16;
+            if (0..50).contains(&nx) && (0..50).contains(&ny) {
+                remote_area.insert(Location::from_coords(nx as u32, ny as u32));
             }
         }
     }
@@ -440,7 +470,7 @@ fn validate_all_structures_defended(
         if !has_non_road {
             continue;
         }
-        if mineral_area.contains(loc) {
+        if remote_area.contains(loc) {
             continue;
         }
         must_defend.insert(*loc);

@@ -1,6 +1,7 @@
-//! SpawnLayer: Places 2 additional spawns near the hub.
+//! SpawnLayer: Places additional spawns near the hub (up to 3 total).
 //! Deterministic (1 candidate) -- picks positions with good spacing.
 //!
+//! The hub stamp places 2 spawns; this layer places the remaining 1.
 //! Spawns prefer positions with more open adjacent tiles to reduce congestion
 //! during spawning. A minimum of 2 open neighbors is required, and spawns are
 //! spaced apart from each other. Uses flood-fill distances from the hub for

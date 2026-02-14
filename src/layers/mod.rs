@@ -36,7 +36,9 @@ pub use road_network::RoadNetworkLayer;
 pub use road_prune::RoadPruneLayer;
 pub use source_infra::SourceInfraLayer;
 pub use spawn::SpawnLayer;
-pub use stamp_layer::{hub_stamp_layer, lab_stamp_layer, GreedyStampLayer, StampLayer};
+pub use stamp_layer::{
+    hub_stamp_layer, lab_stamp_layer, GreedyStampLayer, ScoredStampLayer, StampLayer,
+};
 pub use tower::TowerLayer;
 pub use tower_coverage_score::TowerCoverageScoreLayer;
 pub use upgrade_area_score::UpgradeAreaScoreLayer;

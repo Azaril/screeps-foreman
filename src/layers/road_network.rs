@@ -17,6 +17,7 @@ use crate::pipeline::analysis::AnalysisOutput;
 use crate::plan::*;
 use crate::terrain::*;
 use fnv::{FnvHashMap, FnvHashSet};
+use log::*;
 use pathfinding::directed::astar::astar;
 
 use screeps::constants::StructureType;
@@ -149,6 +150,13 @@ impl PlacementLayer for RoadNetworkLayer {
             if let Some((path, _cost)) =
                 find_path(hub, *dest, terrain, &state.structures, &road_tiles)
             {
+                trace!(
+                    "{}: path to ({},{}) has {} tiles",
+                    self.layer_name,
+                    dest.x(),
+                    dest.y(),
+                    path.len()
+                );
                 let mut prev = None;
                 for loc in &path {
                     road_tiles.insert(*loc);
@@ -158,6 +166,13 @@ impl PlacementLayer for RoadNetworkLayer {
                     }
                     prev = Some(*loc);
                 }
+            } else {
+                debug!(
+                    "{}: no path to ({},{})",
+                    self.layer_name,
+                    dest.x(),
+                    dest.y()
+                );
             }
         }
 
@@ -192,9 +207,26 @@ impl PlacementLayer for RoadNetworkLayer {
                         }
                     }
                     // Pre-existing roads: leave their RCL unchanged.
+                } else {
+                    // Tile has structures but no road. Place a road if the
+                    // tile only contains structures that coexist with roads
+                    // (containers, ramparts). Skip tiles with buildings
+                    // (extensions, spawns, towers, etc.) where a road would
+                    // not make sense.
+                    let all_coexist = items.iter().all(|i| {
+                        matches!(
+                            i.structure_type,
+                            StructureType::Container | StructureType::Rampart
+                        )
+                    });
+                    if all_coexist {
+                        let road = match self.rcl {
+                            Some(rcl) => RoomItem::new(StructureType::Road, rcl),
+                            None => RoomItem::new_auto_rcl(StructureType::Road),
+                        };
+                        items.push(road);
+                    }
                 }
-                // Tile has structures but no road — skip (don't place road
-                // on top of buildings).
             } else {
                 // No structures at this tile — place a new road.
                 let road = match self.rcl {
@@ -295,9 +327,13 @@ fn all_buildings_destinations(state: &PlacementState) -> Vec<Location> {
 /// Tiles that already have roads cost nothing to traverse, encouraging path
 /// reuse and minimizing total road count.  Non-road tiles are costed as:
 ///   - Plains: 10 (scaled for tie-breaking resolution)
-///   - Swamp:  30
+///   - Swamp:  60 (reflects ~5x higher maintenance cost of swamp roads)
 ///   - Container: +100 (walkable but adds fatigue; strongly discouraged)
 ///   - Other occupied structure: +500 (effectively blocked)
+///
+/// The swamp cost (60) is set high relative to plains (10) to aggressively
+/// avoid swamp roads. In Screeps, roads on swamp decay at ~5x the rate of
+/// roads on plains, making them significantly more expensive to maintain.
 ///
 /// **Tie-breaking bias:** tiles adjacent to an existing road get a small
 /// discount (-1), causing A* to deterministically prefer paths that stay
@@ -337,8 +373,9 @@ pub(crate) fn find_path(
                     }
 
                     // Base cost scaled by 10 for tie-breaking resolution.
+                    // Swamp cost is 6x plains to reflect ~5x higher maintenance.
                     let base_cost = if terrain.is_swamp(ux, uy) {
-                        30u32
+                        60u32
                     } else {
                         10u32
                     };
@@ -357,8 +394,11 @@ pub(crate) fn find_path(
                             )
                         });
                         if has_other_occupied {
-                            // Effectively blocked (extensions, spawns, walls, etc.)
-                            500u32
+                            // Impassable: roads cannot be placed on top of
+                            // buildings (extensions, spawns, towers, etc.).
+                            // Routing through them would create gaps in the
+                            // road network since no road structure is placed.
+                            return None;
                         } else if has_container {
                             // Walkable but adds fatigue; strongly discouraged
                             100u32

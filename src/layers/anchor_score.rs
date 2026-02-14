@@ -1,7 +1,9 @@
 //! AnchorScoreLayer: Scoring-only layer that evaluates the chosen anchor position.
 //! Pushes ScoreEntry values for source distance, source balance, controller distance,
-//! exit proximity, openness, and mineral distance. Enables early pruning of bad anchors.
+//! exit proximity, mineral distance, terrain openness, and defensibility.
+//! Enables early pruning of bad anchors.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
@@ -9,6 +11,14 @@ use crate::terrain::*;
 /// Scoring-only layer that evaluates the anchor/hub position.
 /// No structures are placed; only ScoreEntry values are pushed.
 pub struct AnchorScoreLayer;
+
+/// Radius for counting buildable tiles around the hub for the openness score.
+const OPENNESS_RADIUS: i16 = 8;
+
+/// Maximum expected buildable tiles within `OPENNESS_RADIUS` for normalization.
+/// A fully open area has (2*8+1)^2 = 289 tiles; ~200 is a reasonable upper bound
+/// after accounting for typical wall density.
+const OPENNESS_MAX_TILES: f32 = 200.0;
 
 impl PlacementLayer for AnchorScoreLayer {
     fn name(&self) -> &str {
@@ -29,7 +39,7 @@ impl PlacementLayer for AnchorScoreLayer {
         index: usize,
         state: &PlacementState,
         analysis: &AnalysisOutput,
-        _terrain: &FastRoomTerrain,
+        terrain: &FastRoomTerrain,
     ) -> Option<Result<PlacementState, ()>> {
         if index > 0 {
             return None;
@@ -116,6 +126,99 @@ impl PlacementLayer for AnchorScoreLayer {
             }
         }
         new_state.push_score("mineral_distance", mineral_distance, 0.3);
+
+        // 6. Terrain openness (weight 1.0)
+        // Count buildable (non-wall) tiles within OPENNESS_RADIUS of the hub.
+        // More open terrain = more room for extensions near hub = better fill times.
+        let terrain_openness = {
+            let hx = x as i16;
+            let hy = y as i16;
+            let mut buildable_count = 0u32;
+            for dy in -OPENNESS_RADIUS..=OPENNESS_RADIUS {
+                for dx in -OPENNESS_RADIUS..=OPENNESS_RADIUS {
+                    let tx = hx + dx;
+                    let ty = hy + dy;
+                    if tx >= ROOM_BUILD_BORDER as i16
+                        && tx < (ROOM_WIDTH - ROOM_BUILD_BORDER) as i16
+                        && ty >= ROOM_BUILD_BORDER as i16
+                        && ty < (ROOM_HEIGHT - ROOM_BUILD_BORDER) as i16
+                        && !terrain.is_wall(tx as u8, ty as u8)
+                    {
+                        buildable_count += 1;
+                    }
+                }
+            }
+            (buildable_count as f32 / OPENNESS_MAX_TILES).min(1.0)
+        };
+        new_state.push_score("terrain_openness", terrain_openness, 1.0);
+
+        // 7. Defensibility (weight 1.0)
+        // Approximate the min-cut size by summing the minimum distance-transform
+        // values along the shortest path from each exit cluster to the hub area.
+        // Lower distance-transform values along paths = narrower chokepoints =
+        // fewer ramparts needed = higher defensibility score.
+        let defensibility = {
+            let hx = x as i16;
+            let hy = y as i16;
+
+            // Sample the minimum distance-transform value in each quadrant
+            // between the hub and the room edges. Narrow passages (low dt values)
+            // indicate natural chokepoints that reduce rampart count.
+            let mut min_dt_sum = 0u32;
+            let mut quadrant_count = 0u32;
+
+            // Check 8 radial directions from hub toward edges
+            let directions: [(i16, i16); 8] = [
+                (0, -1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+                (0, 1),
+                (-1, 1),
+                (-1, 0),
+                (-1, -1),
+            ];
+
+            for &(ddx, ddy) in &directions {
+                let mut min_dt = u8::MAX;
+                let mut px = hx;
+                let mut py = hy;
+
+                // Walk from hub toward edge, tracking minimum distance transform
+                for _step in 0..25 {
+                    px += ddx;
+                    py += ddy;
+                    if !(0..50).contains(&px) || !(0..50).contains(&py) {
+                        break;
+                    }
+                    if terrain.is_wall(px as u8, py as u8) {
+                        // Wall = natural barrier, very defensible
+                        min_dt = 0;
+                        break;
+                    }
+                    let dt = *analysis.dist_transform.get(px as usize, py as usize);
+                    if dt < min_dt {
+                        min_dt = dt;
+                    }
+                }
+
+                if min_dt < u8::MAX {
+                    min_dt_sum += min_dt as u32;
+                    quadrant_count += 1;
+                }
+            }
+
+            if quadrant_count > 0 {
+                // Lower average min-dt = narrower passages = better defensibility.
+                // A fully open room has avg min-dt ~10-15; a well-choked room has ~2-4.
+                let avg_min_dt = min_dt_sum as f32 / quadrant_count as f32;
+                // Normalize: dt=0 (wall) -> 1.0, dt=10+ -> 0.0
+                (1.0 - avg_min_dt / 10.0).max(0.0)
+            } else {
+                0.5 // neutral if no data
+            }
+        };
+        new_state.push_score("defensibility", defensibility, 1.0);
 
         Some(Ok(new_state))
     }
