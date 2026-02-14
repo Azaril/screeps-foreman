@@ -1,8 +1,8 @@
 //! MineralInfraLayer: Places extractor and mineral container.
 //! Low branching -- deterministic placement.
 
+use crate::constants::*;
 use crate::layer::*;
-use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
@@ -44,34 +44,26 @@ impl PlacementLayer for MineralInfraLayer {
         let mut new_state = state.clone();
 
         for (mineral_loc, _, _) in &analysis.mineral_distances {
-            let mx = mineral_loc.x();
-            let my = mineral_loc.y();
-
             // Place extractor on the mineral
-            new_state.place_structure(mx, my, StructureType::Extractor, 6);
+            new_state.place_structure(*mineral_loc, StructureType::Extractor, 6);
             new_state.set_landmark("extractor", *mineral_loc);
 
             // Place container adjacent to mineral
             for &(dx, dy) in &NEIGHBORS_8 {
-                let x = mx as i16 + dx as i16;
-                let y = my as i16 + dy as i16;
-                if !(1..49).contains(&x) || !(1..49).contains(&y) {
-                    continue;
+                if let Some(nloc) = mineral_loc.checked_add(dx, dy) {
+                    if !nloc.is_interior() {
+                        continue;
+                    }
+                    if terrain.is_wall_at(nloc)
+                        || new_state.has_any_structure(nloc)
+                        || new_state.is_excluded(nloc)
+                    {
+                        continue;
+                    }
+                    new_state.place_structure(nloc, StructureType::Container, 6);
+                    new_state.set_landmark("mineral_container", nloc);
+                    break;
                 }
-                let ux = x as u8;
-                let uy = y as u8;
-                if terrain.is_wall(ux, uy)
-                    || new_state.has_any_structure(ux, uy)
-                    || new_state.is_excluded(ux, uy)
-                {
-                    continue;
-                }
-                new_state.place_structure(ux, uy, StructureType::Container, 6);
-                new_state.set_landmark(
-                    "mineral_container",
-                    Location::from_coords(ux as u32, uy as u32),
-                );
-                break;
             }
         }
 

@@ -188,7 +188,7 @@ impl PlacementLayer for AnchorScoreLayer {
                 for _step in 0..25 {
                     px += ddx;
                     py += ddy;
-                    if !(0..50).contains(&px) || !(0..50).contains(&py) {
+                    if !xy_in_bounds(px, py) {
                         break;
                     }
                     if terrain.is_wall(px as u8, py as u8) {

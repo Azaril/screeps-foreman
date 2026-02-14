@@ -13,6 +13,7 @@
 //!
 //! A 1x1 fallback fills any remaining quota with individual extensions.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -146,58 +147,51 @@ fn search_and_place(
     stamp_ext_offsets: &[Vec<(i8, i8)>],
     remaining: u8,
 ) -> u8 {
-    let mut visited = vec![false; 50 * 50];
-    let mut queue: VecDeque<(u8, u8)> = VecDeque::new();
-
-    let hx = hub.x();
-    let hy = hub.y();
+    let mut visited = vec![false; ROOM_AREA];
+    let mut queue: VecDeque<Location> = VecDeque::new();
 
     // The hub tile may itself be occupied (e.g. if the hub landmark is on a
     // spawn rather than a road).  Seed the BFS from all road tiles adjacent
     // to (and including) the hub so we can escape the hub cluster.
-    let seed_tiles: Vec<(u8, u8)> = {
-        let mut seeds = vec![(hx, hy)];
+    let seed_tiles: Vec<Location> = {
+        let mut seeds = vec![hub];
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = hx as i16 + dx as i16;
-            let ny = hy as i16 + dy as i16;
-            if (0..50).contains(&nx) && (0..50).contains(&ny) {
-                seeds.push((nx as u8, ny as u8));
+            if let Some(nloc) = hub.checked_add(dx, dy) {
+                seeds.push(nloc);
             }
         }
         seeds
     };
 
-    for &(sx, sy) in &seed_tiles {
-        let idx = sy as usize * 50 + sx as usize;
+    for &seed in &seed_tiles {
+        let idx = seed.to_index();
         if visited[idx] {
             continue;
         }
-        if terrain.is_wall(sx, sy) {
+        if terrain.is_wall_at(seed) {
             continue;
         }
-        if state.is_occupied(sx, sy) {
+        if state.is_occupied(seed) {
             continue;
         }
         visited[idx] = true;
-        queue.push_back((sx, sy));
+        queue.push_back(seed);
     }
 
-    while let Some((x, y)) = queue.pop_front() {
+    while let Some(loc) = queue.pop_front() {
         // If this tile is unoccupied, not a wall, and not already a road,
         // it's a candidate for stamp placement (or 1x1 fallback).
-        if !state.is_occupied(x, y)
-            && !terrain.is_wall(x, y)
-            && !tile_has_road(state, x, y)
-            && (1..49).contains(&x)
-            && (1..49).contains(&y)
+        if !state.is_occupied(loc)
+            && !terrain.is_wall_at(loc)
+            && !tile_has_road(state, loc)
+            && loc.is_interior()
         {
             // Try stamps largest-first with anchor offsets.
             for (si, stamp_def) in stamps.iter().enumerate() {
                 if let Some(count) = try_stamp_with_offsets(
                     stamp_def,
                     &stamp_ext_offsets[si],
-                    x,
-                    y,
+                    loc,
                     terrain,
                     state,
                     hub,
@@ -209,34 +203,29 @@ fn search_and_place(
 
             // 1x1 fallback: place a single extension if it has an adjacent
             // road reachable from the hub.
-            if has_adjacent_hub_road(x, y, terrain, state, hub) {
-                state.place_structure_auto_rcl(x, y, StructureType::Extension);
+            if has_adjacent_hub_road(loc, terrain, state, hub) {
+                state.place_structure_auto_rcl(loc, StructureType::Extension);
                 return 1;
             }
         }
 
         // Expand BFS to walkable neighbors (roads + unoccupied non-wall).
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = x as i16 + dx as i16;
-            let ny = y as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                continue;
+            if let Some(nloc) = loc.checked_add(dx, dy) {
+                let idx = nloc.to_index();
+                if visited[idx] {
+                    continue;
+                }
+                if terrain.is_wall_at(nloc) {
+                    continue;
+                }
+                // Walkable = not occupied by a non-road structure.
+                if state.is_occupied(nloc) {
+                    continue;
+                }
+                visited[idx] = true;
+                queue.push_back(nloc);
             }
-            let ux = nx as u8;
-            let uy = ny as u8;
-            let idx = uy as usize * 50 + ux as usize;
-            if visited[idx] {
-                continue;
-            }
-            if terrain.is_wall(ux, uy) {
-                continue;
-            }
-            // Walkable = not occupied by a non-road structure.
-            if state.is_occupied(ux, uy) {
-                continue;
-            }
-            visited[idx] = true;
-            queue.push_back((ux, uy));
         }
     }
 
@@ -249,35 +238,36 @@ fn search_and_place(
 // ---------------------------------------------------------------------------
 
 /// Try to place a stamp such that at least one of its extension tiles lands
-/// on `(cx, cy)`.  Tries all valid anchor offsets.  Returns `Some(count)` on
+/// on `center`.  Tries all valid anchor offsets.  Returns `Some(count)` on
 /// success, `None` if no offset works.
 #[allow(clippy::too_many_arguments)]
 fn try_stamp_with_offsets(
     stamp_def: &ExtensionStampDef,
     ext_offsets: &[(i8, i8)],
-    cx: u8,
-    cy: u8,
+    center: Location,
     terrain: &FastRoomTerrain,
     state: &mut PlacementState,
     hub: Location,
     remaining: u8,
 ) -> Option<u8> {
     // Deduplicate candidate anchors.
-    let mut tried_anchors: FnvHashSet<(u8, u8)> = FnvHashSet::default();
+    let mut tried_anchors: FnvHashSet<Location> = FnvHashSet::default();
+
+    let cx = center.x();
+    let cy = center.y();
 
     for &(edx, edy) in ext_offsets {
         let ax = cx as i16 - edx as i16;
         let ay = cy as i16 - edy as i16;
-        if !(0..50).contains(&ax) || !(0..50).contains(&ay) {
+        if !xy_in_bounds(ax, ay) {
             continue;
         }
-        let ax = ax as u8;
-        let ay = ay as u8;
-        if !tried_anchors.insert((ax, ay)) {
+        let anchor = Location::from_xy(ax as u8, ay as u8);
+        if !tried_anchors.insert(anchor) {
             continue;
         }
 
-        if let Some(count) = try_place_stamp(stamp_def, ax, ay, terrain, state, hub, remaining) {
+        if let Some(count) = try_place_stamp(stamp_def, anchor, terrain, state, hub, remaining) {
             return Some(count);
         }
     }
@@ -294,14 +284,15 @@ fn try_stamp_with_offsets(
 /// road links.  Unfillable extensions are removed.
 fn try_place_stamp(
     stamp_def: &ExtensionStampDef,
-    anchor_x: u8,
-    anchor_y: u8,
+    anchor: Location,
     terrain: &FastRoomTerrain,
     state: &mut PlacementState,
     hub: Location,
     remaining: u8,
 ) -> Option<u8> {
     let stamp = &stamp_def.stamp;
+    let anchor_x = anchor.x();
+    let anchor_y = anchor.y();
 
     // Quick check: do required placements fit terrain and exclusions?
     if !stamp.fits_at(anchor_x, anchor_y, terrain, &state.excluded) {
@@ -318,14 +309,15 @@ fn try_place_stamp(
     );
 
     // Separate into roads and extensions.
-    let mut road_placements: Vec<(u8, u8)> = Vec::new();
-    let mut ext_placements: Vec<(u8, u8)> = Vec::new();
+    let mut road_placements: Vec<Location> = Vec::new();
+    let mut ext_placements: Vec<Location> = Vec::new();
 
     for &(px, py, st, _rcl) in &placements {
-        if st == StructureType::Road && !state.has_any_structure(px, py) {
-            road_placements.push((px, py));
-        } else if st == StructureType::Extension && !state.has_any_structure(px, py) {
-            ext_placements.push((px, py));
+        let ploc = Location::from_xy(px, py);
+        if st == StructureType::Road && !state.has_any_structure(ploc) {
+            road_placements.push(ploc);
+        } else if st == StructureType::Extension && !state.has_any_structure(ploc) {
+            ext_placements.push(ploc);
         }
     }
 
@@ -336,15 +328,12 @@ fn try_place_stamp(
         // Compute structure-aware distances so we sort by actual pathing
         // distance around placed structures, not straight-line Chebyshev.
         if let Some(hub_dists) = state.hub_pathing_distances(terrain) {
-            ext_placements.sort_by_key(|&(ex, ey)| {
-                (*hub_dists.get(ex as usize, ey as usize)).unwrap_or(u32::MAX)
+            ext_placements.sort_by_key(|&eloc| {
+                (*hub_dists.get(eloc.x() as usize, eloc.y() as usize)).unwrap_or(u32::MAX)
             });
         } else {
             // Fallback: sort by Chebyshev distance to hub.
-            ext_placements.sort_by_key(|&(ex, ey)| {
-                let loc = Location::from_coords(ex as u32, ey as u32);
-                hub.distance_to(loc) as u32
-            });
+            ext_placements.sort_by_key(|&eloc| hub.distance_to(eloc) as u32);
         }
         ext_placements.truncate(remaining as usize);
     }
@@ -362,27 +351,27 @@ fn try_place_stamp(
     place_roads(&road_placements, state);
 
     // Place extensions.
-    for &(ex, ey) in &ext_placements {
-        state.place_structure_auto_rcl(ex, ey, StructureType::Extension);
+    for &eloc in &ext_placements {
+        state.place_structure_auto_rcl(eloc, StructureType::Extension);
     }
 
     // --- Per-stamp road connectivity verification ---
     let mut bfs = walkable_bfs(hub, terrain, state);
 
     // Find disconnected stamp roads and connect them.
-    let disconnected_roads: Vec<(u8, u8)> = road_placements
+    let disconnected_roads: Vec<Location> = road_placements
         .iter()
         .copied()
-        .filter(|&(rx, ry)| bfs[ry as usize * 50 + rx as usize] == u32::MAX)
+        .filter(|&rloc| bfs[rloc.to_index()] == u32::MAX)
         .collect();
 
     if !disconnected_roads.is_empty() {
         // Try to connect each disconnected road segment to the hub network.
-        for &(rx, ry) in &disconnected_roads {
-            if bfs[ry as usize * 50 + rx as usize] != u32::MAX {
+        for &rloc in &disconnected_roads {
+            if bfs[rloc.to_index()] != u32::MAX {
                 continue; // Already connected by a previous link.
             }
-            if let Some(path) = pathfind_road_connection(rx, ry, terrain, state, &bfs) {
+            if let Some(path) = pathfind_road_connection(rloc, terrain, state, &bfs) {
                 place_roads(&path, state);
                 // Recompute BFS after adding connecting roads.
                 bfs = walkable_bfs(hub, terrain, state);
@@ -392,28 +381,27 @@ fn try_place_stamp(
 
     // --- Extension fillability check ---
     // Each extension must have at least one adjacent road with bfs dist != MAX.
-    let mut fillable_exts: Vec<(u8, u8)> = Vec::new();
-    let mut unfillable_exts: Vec<(u8, u8)> = Vec::new();
+    let mut fillable_exts: Vec<Location> = Vec::new();
+    let mut unfillable_exts: Vec<Location> = Vec::new();
 
-    for &(ex, ey) in &ext_placements {
-        if has_adjacent_reachable_road(ex, ey, state, &bfs) {
-            fillable_exts.push((ex, ey));
+    for &eloc in &ext_placements {
+        if has_adjacent_reachable_road(eloc, state, &bfs) {
+            fillable_exts.push(eloc);
         } else {
-            unfillable_exts.push((ex, ey));
+            unfillable_exts.push(eloc);
         }
     }
 
     // Remove unfillable extensions from state.
     if !unfillable_exts.is_empty() {
-        for &(ux, uy) in &unfillable_exts {
-            let loc = Location::from_coords(ux as u32, uy as u32);
-            if let Some(items) = state.structures.get_mut(&loc) {
+        for &uloc in &unfillable_exts {
+            if let Some(items) = state.structures.get_mut(&uloc) {
                 items.retain(|i| i.structure_type != StructureType::Extension);
                 if items.is_empty() {
-                    state.structures.remove(&loc);
+                    state.structures.remove(&uloc);
                 }
             }
-            state.occupied.remove(&loc);
+            state.occupied.remove(&uloc);
         }
     }
 
@@ -434,8 +422,7 @@ fn try_place_stamp(
 // ---------------------------------------------------------------------------
 
 /// Check if a tile already has a road placed on it.
-fn tile_has_road(state: &PlacementState, x: u8, y: u8) -> bool {
-    let loc = Location::from_coords(x as u32, y as u32);
+fn tile_has_road(state: &PlacementState, loc: Location) -> bool {
     state
         .structures
         .get(&loc)
@@ -448,10 +435,10 @@ fn tile_has_road(state: &PlacementState, x: u8, y: u8) -> bool {
 }
 
 /// Place road tiles, skipping tiles that already have any structure or are excluded.
-fn place_roads(roads: &[(u8, u8)], state: &mut PlacementState) {
-    for &(rx, ry) in roads {
-        if !state.has_any_structure(rx, ry) && !state.is_excluded(rx, ry) {
-            state.place_structure_auto_rcl(rx, ry, StructureType::Road);
+fn place_roads(roads: &[Location], state: &mut PlacementState) {
+    for &rloc in roads {
+        if !state.has_any_structure(rloc) && !state.is_excluded(rloc) {
+            state.place_structure_auto_rcl(rloc, StructureType::Road);
         }
     }
 }
@@ -459,80 +446,65 @@ fn place_roads(roads: &[(u8, u8)], state: &mut PlacementState) {
 /// BFS from hub over walkable tiles (roads + unoccupied non-wall).
 /// Returns a flat 50x50 distance array.
 fn walkable_bfs(hub: Location, terrain: &FastRoomTerrain, state: &PlacementState) -> Vec<u32> {
-    let mut dist = vec![u32::MAX; 50 * 50];
-    let mut queue: VecDeque<(u8, u8, u32)> = VecDeque::new();
+    let mut dist = vec![u32::MAX; ROOM_AREA];
+    let mut queue: VecDeque<(Location, u32)> = VecDeque::new();
 
-    let hx = hub.x();
-    let hy = hub.y();
-    dist[hy as usize * 50 + hx as usize] = 0;
-    queue.push_back((hx, hy, 0));
+    dist[hub.to_index()] = 0;
+    queue.push_back((hub, 0));
 
-    while let Some((x, y, d)) = queue.pop_front() {
+    while let Some((loc, d)) = queue.pop_front() {
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = x as i16 + dx as i16;
-            let ny = y as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                continue;
+            if let Some(nloc) = loc.checked_add(dx, dy) {
+                let idx = nloc.to_index();
+                if dist[idx] != u32::MAX {
+                    continue;
+                }
+                if terrain.is_wall_at(nloc) {
+                    continue;
+                }
+                if state.is_occupied(nloc) {
+                    continue;
+                }
+                dist[idx] = d + 1;
+                queue.push_back((nloc, d + 1));
             }
-            let ux = nx as u8;
-            let uy = ny as u8;
-            let idx = uy as usize * 50 + ux as usize;
-            if dist[idx] != u32::MAX {
-                continue;
-            }
-            if terrain.is_wall(ux, uy) {
-                continue;
-            }
-            if state.is_occupied(ux, uy) {
-                continue;
-            }
-            dist[idx] = d + 1;
-            queue.push_back((ux, uy, d + 1));
         }
     }
 
     dist
 }
 
-/// Check whether tile (x, y) has at least one adjacent road tile that is
+/// Check whether a tile has at least one adjacent road tile that is
 /// reachable from the hub (bfs dist != MAX).
-fn has_adjacent_reachable_road(x: u8, y: u8, state: &PlacementState, bfs: &[u32]) -> bool {
+fn has_adjacent_reachable_road(loc: Location, state: &PlacementState, bfs: &[u32]) -> bool {
     for &(dx, dy) in &NEIGHBORS_8 {
-        let nx = x as i16 + dx as i16;
-        let ny = y as i16 + dy as i16;
-        if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-            continue;
-        }
-        let ux = nx as u8;
-        let uy = ny as u8;
-        // Must be a road tile.
-        let loc = Location::from_coords(ux as u32, uy as u32);
-        let is_road = state
-            .structures
-            .get(&loc)
-            .map(|items| {
-                items
-                    .iter()
-                    .any(|i| i.structure_type == StructureType::Road)
-            })
-            .unwrap_or(false);
-        if !is_road {
-            continue;
-        }
-        // Must be reachable from hub.
-        let idx = uy as usize * 50 + ux as usize;
-        if bfs[idx] != u32::MAX {
-            return true;
+        if let Some(nloc) = loc.checked_add(dx, dy) {
+            // Must be a road tile.
+            let is_road = state
+                .structures
+                .get(&nloc)
+                .map(|items| {
+                    items
+                        .iter()
+                        .any(|i| i.structure_type == StructureType::Road)
+                })
+                .unwrap_or(false);
+            if !is_road {
+                continue;
+            }
+            // Must be reachable from hub.
+            if bfs[nloc.to_index()] != u32::MAX {
+                return true;
+            }
         }
     }
     false
 }
 
-/// Quick check: does tile (x, y) have an adjacent road that is path-connected
+/// Quick check: does a tile have an adjacent road that is path-connected
 /// to the hub?  Used for 1x1 fallback placement.
 fn has_adjacent_hub_road(
-    x: u8,
-    y: u8,
+    loc: Location,
     terrain: &FastRoomTerrain,
     state: &PlacementState,
     hub: Location,
@@ -540,61 +512,59 @@ fn has_adjacent_hub_road(
     // Run a full walkable BFS to check — this is only called for 1x1
     // fallback after all stamps have been exhausted, so it's rare.
     let bfs = walkable_bfs(hub, terrain, state);
-    has_adjacent_reachable_road(x, y, state, &bfs)
+    has_adjacent_reachable_road(loc, state, &bfs)
 }
 
 /// Pathfind a short road connection from a disconnected road tile to the
 /// nearest tile reachable from the hub.  Returns the path as a list of
-/// (x, y) positions to place roads on, or None if no connection is possible.
+/// locations to place roads on, or None if no connection is possible.
 ///
 /// BFS from the disconnected tile through non-wall, non-occupied tiles until
 /// we reach a tile with bfs[idx] != MAX (already connected to hub).
 fn pathfind_road_connection(
-    start_x: u8,
-    start_y: u8,
+    start: Location,
     terrain: &FastRoomTerrain,
     state: &PlacementState,
     hub_bfs: &[u32],
-) -> Option<Vec<(u8, u8)>> {
-    let mut visited = vec![false; 50 * 50];
-    let mut parent: Vec<Option<(u8, u8)>> = vec![None; 50 * 50];
-    let mut queue: VecDeque<(u8, u8)> = VecDeque::new();
+) -> Option<Vec<Location>> {
+    let mut visited = vec![false; ROOM_AREA];
+    let mut parent: Vec<Option<Location>> = vec![None; ROOM_AREA];
+    let mut queue: VecDeque<Location> = VecDeque::new();
 
-    let start_idx = start_y as usize * 50 + start_x as usize;
+    let start_idx = start.to_index();
     visited[start_idx] = true;
-    queue.push_back((start_x, start_y));
+    queue.push_back(start);
 
-    let mut found: Option<(u8, u8)> = None;
+    let mut found: Option<Location> = None;
 
-    while let Some((x, y)) = queue.pop_front() {
-        let idx = y as usize * 50 + x as usize;
+    while let Some(loc) = queue.pop_front() {
+        let idx = loc.to_index();
         // If this tile is already reachable from hub, we found the connection.
-        if hub_bfs[idx] != u32::MAX && (x != start_x || y != start_y) {
-            found = Some((x, y));
+        if hub_bfs[idx] != u32::MAX && loc != start {
+            found = Some(loc);
             break;
         }
 
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = x as i16 + dx as i16;
-            let ny = y as i16 + dy as i16;
-            if !(1..49).contains(&nx) || !(1..49).contains(&ny) {
-                continue;
+            // Use checked_add (bounds check) then filter to interior tiles.
+            if let Some(nloc) = loc.checked_add(dx, dy) {
+                if !nloc.is_interior() {
+                    continue;
+                }
+                let nidx = nloc.to_index();
+                if visited[nidx] {
+                    continue;
+                }
+                if terrain.is_wall_at(nloc) {
+                    continue;
+                }
+                if state.is_occupied(nloc) {
+                    continue;
+                }
+                visited[nidx] = true;
+                parent[nidx] = Some(loc);
+                queue.push_back(nloc);
             }
-            let ux = nx as u8;
-            let uy = ny as u8;
-            let nidx = uy as usize * 50 + ux as usize;
-            if visited[nidx] {
-                continue;
-            }
-            if terrain.is_wall(ux, uy) {
-                continue;
-            }
-            if state.is_occupied(ux, uy) {
-                continue;
-            }
-            visited[nidx] = true;
-            parent[nidx] = Some((x, y));
-            queue.push_back((ux, uy));
         }
     }
 
@@ -604,11 +574,11 @@ fn pathfind_road_connection(
     let mut path = Vec::new();
     let mut cur = end;
     loop {
-        if cur.0 == start_x && cur.1 == start_y {
+        if cur == start {
             break;
         }
         path.push(cur);
-        let idx = cur.1 as usize * 50 + cur.0 as usize;
+        let idx = cur.to_index();
         cur = parent[idx]?;
     }
     path.reverse();

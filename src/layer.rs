@@ -91,9 +91,8 @@ impl PlacementState {
         });
     }
 
-    /// Place a structure at the given coordinates with an explicit RCL.
-    pub fn place_structure(&mut self, x: u8, y: u8, structure_type: StructureType, rcl: u8) {
-        let loc = Location::from_coords(x as u32, y as u32);
+    /// Place a structure at the given location with an explicit RCL.
+    pub fn place_structure(&mut self, loc: Location, structure_type: StructureType, rcl: u8) {
         self.structures
             .entry(loc)
             .or_default()
@@ -103,12 +102,11 @@ impl PlacementState {
         }
     }
 
-    /// Place a structure at the given coordinates with automatic RCL assignment.
+    /// Place a structure at the given location with automatic RCL assignment.
     ///
     /// The RCL will be resolved later by the `RclAssignmentLayer` or defaulted
     /// to 1 during finalization.
-    pub fn place_structure_auto_rcl(&mut self, x: u8, y: u8, structure_type: StructureType) {
-        let loc = Location::from_coords(x as u32, y as u32);
+    pub fn place_structure_auto_rcl(&mut self, loc: Location, structure_type: StructureType) {
         self.structures
             .entry(loc)
             .or_default()
@@ -119,27 +117,23 @@ impl PlacementState {
     }
 
     /// Check if a tile is occupied by a non-road structure or excluded from placement.
-    pub fn is_occupied(&self, x: u8, y: u8) -> bool {
-        let loc = Location::from_coords(x as u32, y as u32);
+    pub fn is_occupied(&self, loc: Location) -> bool {
         self.occupied.contains(&loc) || self.excluded.contains(&loc)
     }
 
     /// Check if a tile has any structure placed on it (including roads).
-    pub fn has_any_structure(&self, x: u8, y: u8) -> bool {
-        self.structures
-            .contains_key(&Location::from_coords(x as u32, y as u32))
+    pub fn has_any_structure(&self, loc: Location) -> bool {
+        self.structures.contains_key(&loc)
     }
 
     /// Check if a tile has been excluded from placement.
-    pub fn is_excluded(&self, x: u8, y: u8) -> bool {
-        self.excluded
-            .contains(&Location::from_coords(x as u32, y as u32))
+    pub fn is_excluded(&self, loc: Location) -> bool {
+        self.excluded.contains(&loc)
     }
 
     /// Mark a tile as excluded from placement.
-    pub fn exclude_tile(&mut self, x: u8, y: u8) {
-        self.excluded
-            .insert(Location::from_coords(x as u32, y as u32));
+    pub fn exclude_tile(&mut self, loc: Location) {
+        self.excluded.insert(loc);
     }
 
     /// Set a named landmark location.
@@ -207,7 +201,7 @@ impl PlacementState {
         let hub = self.get_landmark("hub")?;
         let structures = &self.structures;
         let (dist_map, _) = flood_fill_distance_with_obstacles(terrain, &[hub], |x, y| {
-            let loc = Location::from_coords(x as u32, y as u32);
+            let loc = Location::from_xy(x, y);
             match structures.get(&loc) {
                 None => true, // no structure = passable
                 Some(items) => items.iter().all(|i| {

@@ -6,8 +6,8 @@
 //! key structures are actually hub-adjacent (some may be missing due to terrain
 //! constraints).
 
+use crate::constants::*;
 use crate::layer::*;
-use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
@@ -61,10 +61,7 @@ impl PlacementLayer for HubQualityScoreLayer {
         let mut extension_count = 0u32;
 
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = hub.x() as i16 + dx as i16;
-            let ny = hub.y() as i16 + dy as i16;
-            if (0..50).contains(&nx) && (0..50).contains(&ny) {
-                let loc = Location::from_coords(nx as u32, ny as u32);
+            if let Some(loc) = hub.checked_add(dx, dy) {
                 if let Some(items) = state.structures.get(&loc) {
                     for item in items {
                         if key_types.contains(&item.structure_type) {

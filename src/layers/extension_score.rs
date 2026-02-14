@@ -8,6 +8,7 @@
 //!    road stop. Extensions adjacent to roads that serve multiple extensions score
 //!    higher, reflecting faster fill cycles.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -108,14 +109,10 @@ impl PlacementLayer for ExtensionScoreLayer {
 
                 let mut ext_adjacent = 0u32;
                 for &(dx, dy) in &NEIGHBORS_8 {
-                    let nx = loc.x() as i16 + dx as i16;
-                    let ny = loc.y() as i16 + dy as i16;
-                    if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                        continue;
-                    }
-                    let nloc = Location::from_coords(nx as u32, ny as u32);
-                    if extension_set.contains(&nloc) {
-                        ext_adjacent += 1;
+                    if let Some(nloc) = loc.checked_add(dx, dy) {
+                        if extension_set.contains(&nloc) {
+                            ext_adjacent += 1;
+                        }
                     }
                 }
 

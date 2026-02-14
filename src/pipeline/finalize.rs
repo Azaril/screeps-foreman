@@ -59,7 +59,7 @@ impl FinalizePhase {
         let hub_position = self
             .placement_state
             .get_landmark("hub")
-            .unwrap_or_else(|| Location::from_coords(25, 25));
+            .unwrap_or_else(|| Location::from_xy(25, 25));
 
         let upgrade_area = self
             .placement_state
@@ -118,7 +118,7 @@ impl FinalizePhase {
         let hub = self
             .placement_state
             .get_landmark("hub")
-            .unwrap_or_else(|| Location::from_coords(25, 25));
+            .unwrap_or_else(|| Location::from_xy(25, 25));
 
         steps.sort_by(|a, b| {
             b.priority

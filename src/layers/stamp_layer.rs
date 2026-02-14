@@ -2,6 +2,7 @@
 //! Supports optional placements -- stamps with `required: false` entries will
 //! have those entries skipped if they don't fit.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -87,7 +88,10 @@ impl PlacementLayer for StampLayer {
         let x = anchor.x() as i16 + dx;
         let y = anchor.y() as i16 + dy;
 
-        if !(2..48).contains(&x) || !(2..48).contains(&y) {
+        let border = ROOM_BUILD_BORDER as i16;
+        if !(border..ROOM_WIDTH as i16 - border).contains(&x)
+            || !(border..ROOM_HEIGHT as i16 - border).contains(&y)
+        {
             return Some(Err(()));
         }
 
@@ -104,27 +108,26 @@ impl PlacementLayer for StampLayer {
             stamp.place_at_filtered(ux, uy, terrain, &state.structures, &state.excluded);
 
         // Check no overlap with existing structures (any type, including roads)
-        let has_overlap = placements
-            .iter()
-            .any(|(px, py, _st, _)| state.has_any_structure(*px, *py));
+        let has_overlap = placements.iter().any(|(px, py, _st, _)| {
+            let loc = Location::from_xy(*px, *py);
+            state.has_any_structure(loc)
+        });
         if has_overlap {
             return Some(Err(()));
         }
 
         let mut new_state = state.clone();
         for (px, py, st, rcl) in &placements {
+            let loc = Location::from_xy(*px, *py);
             match rcl {
-                Some(r) => new_state.place_structure(*px, *py, *st, *r),
-                None => new_state.place_structure_auto_rcl(*px, *py, *st),
+                Some(r) => new_state.place_structure(loc, *st, *r),
+                None => new_state.place_structure_auto_rcl(loc, *st),
             }
 
             // Populate landmark sets based on mappings
             for (mapped_type, landmark_name) in &self.landmark_mappings {
                 if st == mapped_type {
-                    new_state.add_to_landmark_set(
-                        *landmark_name,
-                        Location::from_coords(*px as u32, *py as u32),
-                    );
+                    new_state.add_to_landmark_set(*landmark_name, loc);
                 }
             }
         }
@@ -235,7 +238,10 @@ impl PlacementLayer for GreedyStampLayer {
                     }
                     let x = ax + dx;
                     let y = ay + dy;
-                    if !(2..48).contains(&x) || !(2..48).contains(&y) {
+                    let border = ROOM_BUILD_BORDER as i16;
+                    if !(border..ROOM_WIDTH as i16 - border).contains(&x)
+                        || !(border..ROOM_HEIGHT as i16 - border).contains(&y)
+                    {
                         continue;
                     }
                     let ux = x as u8;
@@ -254,9 +260,10 @@ impl PlacementLayer for GreedyStampLayer {
                             &state.excluded,
                         );
 
-                        let has_overlap = placements
-                            .iter()
-                            .any(|(px, py, _st, _)| state.has_any_structure(*px, *py));
+                        let has_overlap = placements.iter().any(|(px, py, _st, _)| {
+                            let loc = Location::from_xy(*px, *py);
+                            state.has_any_structure(loc)
+                        });
                         if has_overlap {
                             continue;
                         }
@@ -264,16 +271,14 @@ impl PlacementLayer for GreedyStampLayer {
                         // Found a valid placement -- apply it
                         let mut new_state = state.clone();
                         for (px, py, st, rcl) in &placements {
+                            let loc = Location::from_xy(*px, *py);
                             match rcl {
-                                Some(r) => new_state.place_structure(*px, *py, *st, *r),
-                                None => new_state.place_structure_auto_rcl(*px, *py, *st),
+                                Some(r) => new_state.place_structure(loc, *st, *r),
+                                None => new_state.place_structure_auto_rcl(loc, *st),
                             }
                             for (mapped_type, landmark_name) in &self.landmark_mappings {
                                 if st == mapped_type {
-                                    new_state.add_to_landmark_set(
-                                        *landmark_name,
-                                        Location::from_coords(*px as u32, *py as u32),
-                                    );
+                                    new_state.add_to_landmark_set(*landmark_name, loc);
                                 }
                             }
                         }
@@ -356,7 +361,10 @@ impl PlacementLayer for ScoredStampLayer {
                     }
                     let x = ax + dx;
                     let y = ay + dy;
-                    if !(2..48).contains(&x) || !(2..48).contains(&y) {
+                    let border = ROOM_BUILD_BORDER as i16;
+                    if !(border..ROOM_WIDTH as i16 - border).contains(&x)
+                        || !(border..ROOM_HEIGHT as i16 - border).contains(&y)
+                    {
                         continue;
                     }
                     let ux = x as u8;
@@ -375,9 +383,10 @@ impl PlacementLayer for ScoredStampLayer {
                             &state.excluded,
                         );
 
-                        let has_overlap = placements
-                            .iter()
-                            .any(|(px, py, _st, _)| state.has_any_structure(*px, *py));
+                        let has_overlap = placements.iter().any(|(px, py, _st, _)| {
+                            let loc = Location::from_xy(*px, *py);
+                            state.has_any_structure(loc)
+                        });
                         if has_overlap {
                             continue;
                         }
@@ -404,16 +413,14 @@ impl PlacementLayer for ScoredStampLayer {
         if let Some(placements) = best_placements {
             let mut new_state = state.clone();
             for (px, py, st, rcl) in &placements {
+                let loc = Location::from_xy(*px, *py);
                 match rcl {
-                    Some(r) => new_state.place_structure(*px, *py, *st, *r),
-                    None => new_state.place_structure_auto_rcl(*px, *py, *st),
+                    Some(r) => new_state.place_structure(loc, *st, *r),
+                    None => new_state.place_structure_auto_rcl(loc, *st),
                 }
                 for (mapped_type, landmark_name) in &self.landmark_mappings {
                     if st == mapped_type {
-                        new_state.add_to_landmark_set(
-                            *landmark_name,
-                            Location::from_coords(*px as u32, *py as u32),
-                        );
+                        new_state.add_to_landmark_set(*landmark_name, loc);
                     }
                 }
             }
@@ -440,38 +447,35 @@ fn score_placement(
     };
 
     // Build sets of road tiles and non-road structure tiles from this stamp
-    let mut stamp_roads: fnv::FnvHashSet<(u8, u8)> = fnv::FnvHashSet::default();
-    let mut stamp_structures: Vec<(u8, u8)> = Vec::new();
-    let mut stamp_footprint: fnv::FnvHashSet<(u8, u8)> = fnv::FnvHashSet::default();
+    let mut stamp_roads: fnv::FnvHashSet<Location> = fnv::FnvHashSet::default();
+    let mut stamp_structures: Vec<Location> = Vec::new();
+    let mut stamp_footprint: fnv::FnvHashSet<Location> = fnv::FnvHashSet::default();
 
     for &(px, py, st, _) in placements {
-        stamp_footprint.insert((px, py));
+        let loc = Location::from_xy(px, py);
+        stamp_footprint.insert(loc);
         if st == StructureType::Road {
-            stamp_roads.insert((px, py));
+            stamp_roads.insert(loc);
         } else {
-            stamp_structures.push((px, py));
+            stamp_structures.push(loc);
         }
     }
 
     // 2. Road adjacency: count non-road structures adjacent to a road
     let mut road_adjacent_count = 0u32;
-    for &(sx, sy) in &stamp_structures {
+    for &sloc in &stamp_structures {
         let has_adjacent_road = NEIGHBORS_8.iter().any(|&(ddx, ddy)| {
-            let nx = sx as i16 + ddx as i16;
-            let ny = sy as i16 + ddy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                return false;
-            }
-            let ux = nx as u8;
-            let uy = ny as u8;
+            let nloc = match sloc.checked_add(ddx, ddy) {
+                Some(l) => l,
+                None => return false,
+            };
             // Check stamp roads or existing roads in state
-            if stamp_roads.contains(&(ux, uy)) {
+            if stamp_roads.contains(&nloc) {
                 return true;
             }
-            let loc = Location::from_coords(ux as u32, uy as u32);
             state
                 .structures
-                .get(&loc)
+                .get(&nloc)
                 .map(|items| {
                     items
                         .iter()
@@ -491,23 +495,20 @@ fn score_placement(
 
     // 3. Open staging area: count open tiles adjacent to the stamp footprint
     let mut open_count = 0u32;
-    let mut checked: fnv::FnvHashSet<(u8, u8)> = fnv::FnvHashSet::default();
-    for &(fx, fy) in &stamp_footprint {
+    let mut checked: fnv::FnvHashSet<Location> = fnv::FnvHashSet::default();
+    for &floc in &stamp_footprint {
         for &(ddx, ddy) in &NEIGHBORS_8 {
-            let nx = fx as i16 + ddx as i16;
-            let ny = fy as i16 + ddy as i16;
-            if !(1..49).contains(&nx) || !(1..49).contains(&ny) {
+            let nloc = match floc.checked_add(ddx, ddy) {
+                Some(l) if l.is_interior() => l,
+                _ => continue,
+            };
+            if stamp_footprint.contains(&nloc) {
                 continue;
             }
-            let ux = nx as u8;
-            let uy = ny as u8;
-            if stamp_footprint.contains(&(ux, uy)) {
+            if !checked.insert(nloc) {
                 continue;
             }
-            if !checked.insert((ux, uy)) {
-                continue;
-            }
-            if !terrain.is_wall(ux, uy) && !state.is_occupied(ux, uy) {
+            if !terrain.is_wall_at(nloc) && !state.is_occupied(nloc) {
                 open_count += 1;
             }
         }

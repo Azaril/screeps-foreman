@@ -4,7 +4,7 @@
 //! Uses flood-fill distances from the hub (accounting for terrain walls) to
 //! determine build priority ordering rather than Chebyshev distance.
 
-use crate::constants::min_rcl_for_nth;
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -144,12 +144,10 @@ impl PlacementLayer for RclAssignmentLayer {
 
             // Check all 8 neighbors for non-road structures
             for &(dx, dy) in &NEIGHBORS_8 {
-                let nx = road_loc.x() as i16 + dx as i16;
-                let ny = road_loc.y() as i16 + dy as i16;
-                if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                    continue;
-                }
-                let nloc = Location::from_coords(nx as u32, ny as u32);
+                let nloc = match road_loc.checked_add(dx, dy) {
+                    Some(l) => l,
+                    None => continue,
+                };
                 if let Some(items) = new_state.structures.get(&nloc) {
                     for item in items {
                         if item.structure_type != StructureType::Road {

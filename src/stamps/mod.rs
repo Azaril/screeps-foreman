@@ -7,6 +7,7 @@ use fnv::FnvHashMap;
 
 use screeps::constants::StructureType;
 
+use crate::constants::*;
 use crate::location::Location;
 
 /// A placement within a stamp: structure type at a relative offset from the stamp anchor.
@@ -43,7 +44,7 @@ impl Stamp {
             .filter_map(|p| {
                 let x = anchor_x as i16 + p.dx as i16;
                 let y = anchor_y as i16 + p.dy as i16;
-                if (0..50).contains(&x) && (0..50).contains(&y) {
+                if xy_in_bounds(x, y) {
                     Some((x as u8, y as u8, p.structure_type, p.required_rcl))
                 } else {
                     None
@@ -72,16 +73,16 @@ impl Stamp {
             .filter_map(|p| {
                 let x = anchor_x as i16 + p.dx as i16;
                 let y = anchor_y as i16 + p.dy as i16;
-                if !(0..50).contains(&x) || !(0..50).contains(&y) {
+                if !xy_in_bounds(x, y) {
                     return None;
                 }
                 let ux = x as u8;
                 let uy = y as u8;
 
                 // Check if this placement fits
-                let loc = Location::from_coords(ux as u32, uy as u32);
+                let loc = Location::from_xy(ux, uy);
                 let is_excluded = excluded.contains(&loc);
-                let fits = if !(1..49).contains(&x) || !(1..49).contains(&y) {
+                let fits = if !xy_is_interior(x, y) {
                     // Edge tiles: only roads allowed, and no existing structures or exclusions
                     p.structure_type == StructureType::Road
                         && !structures.contains_key(&loc)
@@ -119,15 +120,14 @@ impl Stamp {
             }
             let x = anchor_x as i16 + p.dx as i16;
             let y = anchor_y as i16 + p.dy as i16;
-            if !(1..49).contains(&x) || !(1..49).contains(&y) {
+            if !xy_is_interior(x, y) {
                 // Roads can be on edge, but structures cannot be in build border
                 p.structure_type == StructureType::Road
-                    && (0..50).contains(&x)
-                    && (0..50).contains(&y)
-                    && !excluded.contains(&Location::from_coords(x as u32, y as u32))
+                    && xy_in_bounds(x, y)
+                    && !excluded.contains(&Location::from_xy(x as u8, y as u8))
             } else {
                 !terrain.is_wall(x as u8, y as u8)
-                    && !excluded.contains(&Location::from_coords(x as u32, y as u32))
+                    && !excluded.contains(&Location::from_xy(x as u8, y as u8))
             }
         })
     }

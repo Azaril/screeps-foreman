@@ -6,6 +6,7 @@
 //! Runs after RoadNetworkLayer and before ReachabilityLayer so the final road
 //! layout is validated by the reachability check.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -71,7 +72,7 @@ impl PlacementLayer for RoadPruneLayer {
         let mut removed = 0u32;
 
         for &loc in &all_road_locs {
-            let idx = loc.y() as usize * 50 + loc.x() as usize;
+            let idx = xy_to_index(loc.x() as usize, loc.y() as usize);
             if reachable[idx] == u32::MAX {
                 remove_road(&mut new_state, loc);
                 removed += 1;
@@ -192,7 +193,7 @@ fn prune_redundant_roads(
                 .any(|i| i.structure_type == StructureType::Road)
         })
         .map(|(loc, _)| {
-            let idx = loc.y() as usize * 50 + loc.x() as usize;
+            let idx = xy_to_index(loc.x() as usize, loc.y() as usize);
             (*loc, baseline_dist[idx])
         })
         .collect();
@@ -264,28 +265,28 @@ fn prune_redundant_roads(
 /// Non-road tiles are impassable (distance = u32::MAX).
 /// The hub itself is distance 0 even if it's not a road.
 fn road_bfs(hub: Location, _terrain: &FastRoomTerrain, state: &PlacementState) -> Vec<u32> {
-    let mut dist = vec![u32::MAX; 50 * 50];
+    let mut dist = vec![u32::MAX; ROOM_AREA];
     let mut queue: VecDeque<(u8, u8, u32)> = VecDeque::new();
 
     let hx = hub.x();
     let hy = hub.y();
-    dist[hy as usize * 50 + hx as usize] = 0;
+    dist[xy_to_index(hx as usize, hy as usize)] = 0;
     queue.push_back((hx, hy, 0));
 
     while let Some((x, y, d)) = queue.pop_front() {
         for &(dx, dy) in &NEIGHBORS_8 {
             let nx = x as i16 + dx as i16;
             let ny = y as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+            if !xy_in_bounds(nx, ny) {
                 continue;
             }
             let ux = nx as u8;
             let uy = ny as u8;
-            let idx = uy as usize * 50 + ux as usize;
+            let idx = xy_to_index(ux as usize, uy as usize);
             if dist[idx] != u32::MAX {
                 continue;
             }
-            let loc = Location::from_coords(ux as u32, uy as u32);
+            let loc = Location::from_xy(ux, uy);
             // Only traverse road tiles (and the hub seed).
             let is_road = state
                 .structures
@@ -315,7 +316,7 @@ fn count_reachable_roads(road_dist: &[u32], state: &PlacementState) -> u32 {
             .iter()
             .any(|i| i.structure_type == StructureType::Road)
         {
-            let idx = loc.y() as usize * 50 + loc.x() as usize;
+            let idx = xy_to_index(loc.x() as usize, loc.y() as usize);
             if road_dist[idx] != u32::MAX {
                 count += 1;
             }
@@ -347,10 +348,10 @@ fn best_adjacent_road_dist(loc: Location, road_dist: &[u32]) -> Option<u32> {
     for &(dx, dy) in &NEIGHBORS_8 {
         let nx = x as i16 + dx as i16;
         let ny = y as i16 + dy as i16;
-        if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+        if !xy_in_bounds(nx, ny) {
             continue;
         }
-        let idx = ny as usize * 50 + nx as usize;
+        let idx = xy_to_index(nx as usize, ny as usize);
         let d = road_dist[idx];
         if d != u32::MAX {
             best = Some(best.map_or(d, |b: u32| b.min(d)));
@@ -371,31 +372,31 @@ fn best_adjacent_road_dist(loc: Location, road_dist: &[u32]) -> Option<u32> {
 ///
 /// This matches the reachability layer's walkability definition.
 fn walkable_bfs(hub: Location, terrain: &FastRoomTerrain, state: &PlacementState) -> Vec<u32> {
-    let mut dist = vec![u32::MAX; 50 * 50];
+    let mut dist = vec![u32::MAX; ROOM_AREA];
     let mut queue: VecDeque<(u8, u8, u32)> = VecDeque::new();
 
     let hx = hub.x();
     let hy = hub.y();
-    dist[hy as usize * 50 + hx as usize] = 0;
+    dist[xy_to_index(hx as usize, hy as usize)] = 0;
     queue.push_back((hx, hy, 0));
 
     while let Some((x, y, d)) = queue.pop_front() {
         for &(dx, dy) in &NEIGHBORS_8 {
             let nx = x as i16 + dx as i16;
             let ny = y as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+            if !xy_in_bounds(nx, ny) {
                 continue;
             }
             let ux = nx as u8;
             let uy = ny as u8;
-            let idx = uy as usize * 50 + ux as usize;
+            let idx = xy_to_index(ux as usize, uy as usize);
             if dist[idx] != u32::MAX {
                 continue;
             }
             if terrain.is_wall(ux, uy) {
                 continue;
             }
-            let loc = Location::from_coords(ux as u32, uy as u32);
+            let loc = Location::from_xy(ux, uy);
             let is_walkable = !state.occupied.contains(&loc) || has_road_at(state, loc);
             if !is_walkable {
                 continue;
@@ -429,10 +430,10 @@ fn is_adjacent_to_structure(state: &PlacementState, loc: Location) -> bool {
     for &(dx, dy) in &NEIGHBORS_8 {
         let nx = x as i16 + dx as i16;
         let ny = y as i16 + dy as i16;
-        if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+        if !xy_in_bounds(nx, ny) {
             continue;
         }
-        let nloc = Location::from_coords(nx as u32, ny as u32);
+        let nloc = Location::from_xy(nx as u8, ny as u8);
         if let Some(items) = state.structures.get(&nloc) {
             if items
                 .iter()
@@ -454,10 +455,10 @@ fn count_road_neighbors(state: &PlacementState, loc: Location) -> u8 {
     for &(dx, dy) in &NEIGHBORS_8 {
         let nx = x as i16 + dx as i16;
         let ny = y as i16 + dy as i16;
-        if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+        if !xy_in_bounds(nx, ny) {
             continue;
         }
-        let nloc = Location::from_coords(nx as u32, ny as u32);
+        let nloc = Location::from_xy(nx as u8, ny as u8);
         if let Some(items) = state.structures.get(&nloc) {
             if items
                 .iter()

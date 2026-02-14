@@ -5,6 +5,7 @@
 //! optima. The search radius is wide enough (10 tiles) to allow towers to spread
 //! toward the defensive perimeter for better coverage.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -65,9 +66,9 @@ impl PlacementLayer for TowerLayer {
         let new_state = state.clone();
 
         // Collect perimeter tiles (exit tiles + tiles at distance ~8-12 from anchor)
-        let mut perimeter_tiles: Vec<(u8, u8)> = Vec::new();
+        let mut perimeter_tiles: Vec<Location> = Vec::new();
         for exit in &analysis.exits.all {
-            perimeter_tiles.push((exit.x(), exit.y()));
+            perimeter_tiles.push(*exit);
         }
         for dy in -12..=12i16 {
             for dx in -12..=12i16 {
@@ -77,11 +78,8 @@ impl PlacementLayer for TowerLayer {
                 }
                 let x = ax + dx;
                 let y = ay + dy;
-                if (0..50).contains(&x)
-                    && (0..50).contains(&y)
-                    && !terrain.is_wall(x as u8, y as u8)
-                {
-                    perimeter_tiles.push((x as u8, y as u8));
+                if xy_in_bounds(x, y) && !terrain.is_wall(x as u8, y as u8) {
+                    perimeter_tiles.push(Location::from_xy(x as u8, y as u8));
                 }
             }
         }
@@ -89,43 +87,44 @@ impl PlacementLayer for TowerLayer {
         if perimeter_tiles.is_empty() {
             // Fallback: place towers at fixed offsets
             let mut new_state = new_state;
-            let offsets = [(-2, -1), (-1, -2), (2, -1), (-1, 2), (2, 1), (1, 2)];
-            for (i, (dx, dy)) in offsets.iter().enumerate() {
-                let x = (ax + dx) as u8;
-                let y = (ay + dy) as u8;
-                let rcl = match i {
-                    0 => 3,
-                    1 => 5,
-                    2 => 7,
-                    _ => 8,
-                };
-                if !terrain.is_wall(x, y)
-                    && !new_state.is_occupied(x, y)
-                    && !has_road(&new_state, x, y)
-                {
-                    new_state.place_structure(x, y, StructureType::Tower, rcl);
-                    new_state
-                        .add_to_landmark_set("towers", Location::from_coords(x as u32, y as u32));
+            let offsets: [(i8, i8); 6] = [(-2, -1), (-1, -2), (2, -1), (-1, 2), (2, 1), (1, 2)];
+            for (i, &(dx, dy)) in offsets.iter().enumerate() {
+                if let Some(loc) = hub.checked_add(dx, dy) {
+                    let rcl = match i {
+                        0 => 3,
+                        1 => 5,
+                        2 => 7,
+                        _ => 8,
+                    };
+                    if !terrain.is_wall(loc.x(), loc.y())
+                        && !new_state.is_occupied(loc)
+                        && !has_road(&new_state, loc)
+                    {
+                        new_state.place_structure(loc, StructureType::Tower, rcl);
+                        new_state.add_to_landmark_set("towers", loc);
+                    }
                 }
             }
             return Some(Ok(new_state));
         }
 
         // Generate candidate tower positions near hub
-        let tower_candidates: Vec<(u8, u8)> = {
+        let tower_candidates: Vec<Location> = {
             let mut candidates = Vec::new();
             for dy in -MAX_TOWER_RADIUS..=MAX_TOWER_RADIUS {
                 for dx in -MAX_TOWER_RADIUS..=MAX_TOWER_RADIUS {
                     let x = ax + dx;
                     let y = ay + dy;
-                    if (2..48).contains(&x) && (2..48).contains(&y) {
-                        let ux = x as u8;
-                        let uy = y as u8;
-                        if !terrain.is_wall(ux, uy)
-                            && !state.is_occupied(ux, uy)
-                            && !has_road(state, ux, uy)
+                    let border = ROOM_BUILD_BORDER as i16;
+                    if (border..ROOM_WIDTH as i16 - border).contains(&x)
+                        && (border..ROOM_HEIGHT as i16 - border).contains(&y)
+                    {
+                        let loc = Location::from_xy(x as u8, y as u8);
+                        if !terrain.is_wall(loc.x(), loc.y())
+                            && !state.is_occupied(loc)
+                            && !has_road(state, loc)
                         {
-                            candidates.push((ux, uy));
+                            candidates.push(loc);
                         }
                     }
                 }
@@ -137,22 +136,21 @@ impl PlacementLayer for TowerLayer {
         let max_hub_dist = MAX_TOWER_RADIUS as f32;
 
         // --- Phase 1: Greedy placement ---
-        let mut tower_positions: Vec<(u8, u8)> = Vec::new();
+        let mut tower_positions: Vec<Location> = Vec::new();
         let tower_rcls = [3u8, 5, 7, 8, 8, 8];
 
         for _rcl in &tower_rcls {
             let mut best_pos = None;
             let mut best_score = f32::NEG_INFINITY;
 
-            for &(tx, ty) in &tower_candidates {
-                if tower_positions.contains(&(tx, ty)) {
+            for &candidate in &tower_candidates {
+                if tower_positions.contains(&candidate) {
                     continue;
                 }
 
                 let score = evaluate_tower_set_with_candidate(
                     &tower_positions,
-                    tx,
-                    ty,
+                    candidate,
                     &perimeter_tiles,
                     hub,
                     max_hub_dist,
@@ -160,7 +158,7 @@ impl PlacementLayer for TowerLayer {
 
                 if score > best_score {
                     best_score = score;
-                    best_pos = Some((tx, ty));
+                    best_pos = Some(candidate);
                 }
             }
 
@@ -180,20 +178,20 @@ impl PlacementLayer for TowerLayer {
                 let mut best_swap = None;
                 let mut best_swap_score = current_score;
 
-                for &(cx, cy) in &tower_candidates {
-                    if tower_positions.contains(&(cx, cy)) {
+                for &candidate in &tower_candidates {
+                    if tower_positions.contains(&candidate) {
                         continue;
                     }
 
                     let mut test_positions = tower_positions.clone();
-                    test_positions[ti] = (cx, cy);
+                    test_positions[ti] = candidate;
 
                     let score =
                         evaluate_tower_set(&test_positions, &perimeter_tiles, hub, max_hub_dist);
 
                     if score > best_swap_score {
                         best_swap_score = score;
-                        best_swap = Some((cx, cy));
+                        best_swap = Some(candidate);
                     }
                 }
 
@@ -209,10 +207,10 @@ impl PlacementLayer for TowerLayer {
 
         // --- Place towers in state ---
         let mut new_state = new_state;
-        for (i, &(tx, ty)) in tower_positions.iter().enumerate() {
+        for (i, &loc) in tower_positions.iter().enumerate() {
             let rcl = tower_rcls[i.min(tower_rcls.len() - 1)];
-            new_state.place_structure(tx, ty, StructureType::Tower, rcl);
-            new_state.add_to_landmark_set("towers", Location::from_coords(tx as u32, ty as u32));
+            new_state.place_structure(loc, StructureType::Tower, rcl);
+            new_state.add_to_landmark_set("towers", loc);
         }
 
         Some(Ok(new_state))
@@ -221,8 +219,8 @@ impl PlacementLayer for TowerLayer {
 
 /// Evaluate a complete tower set: returns composite score of min_damage + proximity.
 fn evaluate_tower_set(
-    tower_positions: &[(u8, u8)],
-    perimeter_tiles: &[(u8, u8)],
+    tower_positions: &[Location],
+    perimeter_tiles: &[Location],
     hub: Location,
     max_hub_dist: f32,
 ) -> f32 {
@@ -231,10 +229,10 @@ fn evaluate_tower_set(
     }
 
     let mut min_damage = u32::MAX;
-    for &(px, py) in perimeter_tiles {
+    for &perimeter in perimeter_tiles {
         let mut total_damage = 0u32;
-        for &(tx, ty) in tower_positions {
-            let range = chebyshev_dist(tx, ty, px, py);
+        for &tower in tower_positions {
+            let range = tower.distance_to(perimeter) as u32;
             total_damage += tower_damage_at_range(range);
         }
         if total_damage < min_damage {
@@ -245,8 +243,8 @@ fn evaluate_tower_set(
     // Average hub proximity across all towers
     let avg_proximity: f32 = tower_positions
         .iter()
-        .map(|&(tx, ty)| {
-            let hub_dist = chebyshev_dist(tx, ty, hub.x(), hub.y()) as f32;
+        .map(|&tower| {
+            let hub_dist = tower.distance_to(hub) as f32;
             1.0 - (hub_dist / max_hub_dist).min(1.0)
         })
         .sum::<f32>()
@@ -257,21 +255,20 @@ fn evaluate_tower_set(
 
 /// Evaluate a tower set with one additional candidate tower.
 fn evaluate_tower_set_with_candidate(
-    existing: &[(u8, u8)],
-    tx: u8,
-    ty: u8,
-    perimeter_tiles: &[(u8, u8)],
+    existing: &[Location],
+    candidate: Location,
+    perimeter_tiles: &[Location],
     hub: Location,
     max_hub_dist: f32,
 ) -> f32 {
     let mut min_damage = u32::MAX;
-    for &(px, py) in perimeter_tiles {
+    for &perimeter in perimeter_tiles {
         let mut total_damage = 0u32;
-        for &(etx, ety) in existing {
-            let range = chebyshev_dist(etx, ety, px, py);
+        for &tower in existing {
+            let range = tower.distance_to(perimeter) as u32;
             total_damage += tower_damage_at_range(range);
         }
-        let range = chebyshev_dist(tx, ty, px, py);
+        let range = candidate.distance_to(perimeter) as u32;
         total_damage += tower_damage_at_range(range);
 
         if total_damage < min_damage {
@@ -280,14 +277,13 @@ fn evaluate_tower_set_with_candidate(
     }
 
     // Proximity for the candidate tower
-    let hub_dist = chebyshev_dist(tx, ty, hub.x(), hub.y()) as f32;
+    let hub_dist = candidate.distance_to(hub) as f32;
     let proximity = 1.0 - (hub_dist / max_hub_dist).min(1.0);
     min_damage as f32 + HUB_PROXIMITY_WEIGHT * proximity
 }
 
 /// Check if a tile already has a road placed on it.
-fn has_road(state: &PlacementState, x: u8, y: u8) -> bool {
-    let loc = Location::from_coords(x as u32, y as u32);
+fn has_road(state: &PlacementState, loc: Location) -> bool {
     state
         .structures
         .get(&loc)
@@ -297,10 +293,4 @@ fn has_road(state: &PlacementState, x: u8, y: u8) -> bool {
                 .any(|i| i.structure_type == StructureType::Road)
         })
         .unwrap_or(false)
-}
-
-fn chebyshev_dist(x1: u8, y1: u8, x2: u8, y2: u8) -> u32 {
-    let dx = (x1 as i32 - x2 as i32).unsigned_abs();
-    let dy = (y1 as i32 - y2 as i32).unsigned_abs();
-    dx.max(dy)
 }

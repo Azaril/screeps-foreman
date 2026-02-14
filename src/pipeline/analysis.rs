@@ -1,4 +1,5 @@
 use super::{CpuBudget, PhaseResult};
+use crate::constants::*;
 use crate::location::*;
 use crate::room_data::*;
 use crate::terrain::*;
@@ -120,10 +121,10 @@ impl AnalysisPhase {
                         if exit.y() == 0 {
                             top.push(*exit);
                         }
-                        if exit.x() == 49 {
+                        if exit.x() == ROOM_MAX {
                             right.push(*exit);
                         }
-                        if exit.y() == 49 {
+                        if exit.y() == ROOM_MAX {
                             bottom.push(*exit);
                         }
                         if exit.x() == 0 {

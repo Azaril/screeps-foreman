@@ -11,6 +11,7 @@
 //! routing algorithm can be reused for different sets of targets (e.g. early
 //! infrastructure roads vs. full building coverage).
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -298,16 +299,9 @@ fn all_buildings_destinations(state: &PlacementState) -> Vec<Location> {
         }
 
         // Check if this structure already has an adjacent road tile.
-        let x = loc.x();
-        let y = loc.y();
         let has_adjacent_road = NEIGHBORS_8.iter().any(|&(dx, dy)| {
-            let nx = x as i16 + dx as i16;
-            let ny = y as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                return false;
-            }
-            let nloc = Location::from_coords(nx as u32, ny as u32);
-            road_set.contains(&nloc)
+            loc.checked_add(dx, dy)
+                .is_some_and(|nloc| road_set.contains(&nloc))
         });
 
         if !has_adjacent_road {
@@ -356,7 +350,7 @@ pub(crate) fn find_path(
                 .filter_map(move |&(dx, dy)| {
                     let nx = x + dx as i16;
                     let ny = y + dy as i16;
-                    if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+                    if !xy_in_bounds(nx, ny) {
                         return None;
                     }
                     let ux = nx as u8;
@@ -364,7 +358,7 @@ pub(crate) fn find_path(
                     if terrain.is_wall(ux, uy) {
                         return None;
                     }
-                    let loc = Location::from_coords(ux as u32, uy as u32);
+                    let loc = Location::from_xy(ux, uy);
 
                     // Already-placed roads are free to traverse, strongly
                     // encouraging path merging onto existing roads.
@@ -414,13 +408,8 @@ pub(crate) fn find_path(
                     // existing road.  This deterministically collapses
                     // equal-cost parallel paths onto the existing network.
                     let adjacency_discount = if NEIGHBORS_8.iter().any(|&(adx, ady)| {
-                        let ax = nx + adx as i16;
-                        let ay = ny + ady as i16;
-                        if !(0..50).contains(&ax) || !(0..50).contains(&ay) {
-                            return false;
-                        }
-                        let aloc = Location::from_coords(ax as u32, ay as u32);
-                        existing_roads.contains(&aloc)
+                        loc.checked_add(adx, ady)
+                            .is_some_and(|aloc| existing_roads.contains(&aloc))
                     }) {
                         1u32
                     } else {
@@ -444,7 +433,7 @@ pub(crate) fn find_path(
     result.map(|(path, cost)| {
         let locs: Vec<Location> = path
             .into_iter()
-            .map(|(x, y)| Location::from_coords(x as u32, y as u32))
+            .map(|(x, y)| Location::from_xy(x as u8, y as u8))
             .collect();
         (locs, cost)
     })

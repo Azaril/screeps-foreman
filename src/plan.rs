@@ -516,7 +516,7 @@ pub fn snapshot_structures(structures: &[screeps::StructureObject]) -> Vec<Exist
         .map(|s| {
             let pos = screeps::HasPosition::pos(s);
             ExistingStructure {
-                location: Location::from_coords(pos.x().u8() as u32, pos.y().u8() as u32),
+                location: Location::from_xy(pos.x().u8(), pos.y().u8()),
                 structure_type: s.structure_type(),
                 has_store: s
                     .as_has_store()

@@ -28,12 +28,20 @@ impl FastRoomTerrain {
     }
 
     pub fn get_xy(&self, x: u8, y: u8) -> TerrainFlags {
-        let index = (y as usize * ROOM_WIDTH as usize) + (x as usize);
+        let index = Location::from_xy(x, y).to_index();
         TerrainFlags::from_bits_truncate(self.buffer[index])
+    }
+
+    pub fn get_at(&self, loc: Location) -> TerrainFlags {
+        TerrainFlags::from_bits_truncate(self.buffer[loc.to_index()])
     }
 
     pub fn is_wall(&self, x: u8, y: u8) -> bool {
         self.get_xy(x, y).contains(TerrainFlags::WALL)
+    }
+
+    pub fn is_wall_at(&self, loc: Location) -> bool {
+        self.get_at(loc).contains(TerrainFlags::WALL)
     }
 
     pub fn is_swamp(&self, x: u8, y: u8) -> bool {
@@ -46,25 +54,25 @@ impl FastRoomTerrain {
         // Top edge
         for x in 0..ROOM_WIDTH {
             if !self.is_wall(x, 0) {
-                exits.push(Location::from_coords(x as u32, 0));
+                exits.push(Location::from_xy(x, 0));
             }
         }
         // Right edge
         for y in 1..ROOM_HEIGHT - 1 {
             if !self.is_wall(ROOM_WIDTH - 1, y) {
-                exits.push(Location::from_coords(ROOM_WIDTH as u32 - 1, y as u32));
+                exits.push(Location::from_xy(ROOM_WIDTH - 1, y));
             }
         }
         // Bottom edge
         for x in 0..ROOM_WIDTH {
             if !self.is_wall(x, ROOM_HEIGHT - 1) {
-                exits.push(Location::from_coords(x as u32, ROOM_HEIGHT as u32 - 1));
+                exits.push(Location::from_xy(x, ROOM_HEIGHT - 1));
             }
         }
         // Left edge
         for y in 1..ROOM_HEIGHT - 1 {
             if !self.is_wall(0, y) {
-                exits.push(Location::from_coords(0, y as u32));
+                exits.push(Location::from_xy(0, y));
             }
         }
         exits
@@ -80,25 +88,35 @@ pub struct RoomDataArray<T: Copy> {
 impl<T: Copy> RoomDataArray<T> {
     pub fn new(initial: T) -> Self {
         RoomDataArray {
-            data: vec![initial; (ROOM_WIDTH as usize) * (ROOM_HEIGHT as usize)],
+            data: vec![initial; ROOM_AREA],
         }
     }
 
     #[inline]
     pub fn get(&self, x: usize, y: usize) -> &T {
-        let index = y * (ROOM_WIDTH as usize) + x;
+        let index = xy_to_index(x, y);
         &self.data[index]
     }
 
     #[inline]
+    pub fn get_at(&self, loc: Location) -> &T {
+        &self.data[loc.to_index()]
+    }
+
+    #[inline]
     pub fn get_mut(&mut self, x: usize, y: usize) -> &mut T {
-        let index = y * (ROOM_WIDTH as usize) + x;
+        let index = xy_to_index(x, y);
         &mut self.data[index]
     }
 
     #[inline]
     pub fn set(&mut self, x: usize, y: usize, value: T) {
         *self.get_mut(x, y) = value;
+    }
+
+    #[inline]
+    pub fn set_at(&mut self, loc: Location, value: T) {
+        self.data[loc.to_index()] = value;
     }
 
     pub fn iter(&self) -> impl Iterator<Item = ((usize, usize), &T)> {
@@ -125,7 +143,7 @@ impl<'de, T: Copy + Deserialize<'de>> Deserialize<'de> for RoomDataArray<T> {
         D: serde::Deserializer<'de>,
     {
         let data = Vec::<T>::deserialize(deserializer)?;
-        if data.len() != (ROOM_WIDTH as usize) * (ROOM_HEIGHT as usize) {
+        if data.len() != ROOM_AREA {
             return Err(serde::de::Error::custom("Invalid room data array size"));
         }
         Ok(RoomDataArray { data })
@@ -169,8 +187,7 @@ pub mod compact_distance_serde {
         D: Deserializer<'de>,
     {
         let compact = Vec::<u16>::deserialize(deserializer)?;
-        let expected = (ROOM_WIDTH as usize) * (ROOM_HEIGHT as usize);
-        if compact.len() != expected {
+        if compact.len() != ROOM_AREA {
             return Err(serde::de::Error::custom(
                 "Invalid compact distance array size",
             ));
@@ -236,21 +253,6 @@ pub mod compact_distance_vec_serde {
     }
 }
 
-/// Neighbor offsets for 8-directional movement.
-pub const NEIGHBORS_8: [(i8, i8); 8] = [
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, 1),
-    (1, 1),
-    (1, 0),
-    (1, -1),
-    (0, -1),
-];
-
-/// Neighbor offsets for 4-directional (cardinal) movement.
-pub const NEIGHBORS_4: [(i8, i8); 4] = [(-1, 0), (0, 1), (1, 0), (0, -1)];
-
 /// Compute a distance transform: for each tile, the Chebyshev distance to the nearest wall or room edge.
 /// Walls and out-of-build-bounds tiles get distance 0.
 pub fn distance_transform(terrain: &FastRoomTerrain) -> RoomDataArray<u8> {
@@ -259,12 +261,7 @@ pub fn distance_transform(terrain: &FastRoomTerrain) -> RoomDataArray<u8> {
     // Initialize: walls and border tiles get 0, others get 255 (max)
     for y in 0..ROOM_HEIGHT as usize {
         for x in 0..ROOM_WIDTH as usize {
-            if terrain.is_wall(x as u8, y as u8)
-                || x == 0
-                || y == 0
-                || x == (ROOM_WIDTH as usize - 1)
-                || y == (ROOM_HEIGHT as usize - 1)
-            {
+            if terrain.is_wall(x as u8, y as u8) || xy_is_border(x as u8, y as u8) {
                 result.set(x, y, 0);
             } else {
                 result.set(x, y, 255);
@@ -323,7 +320,7 @@ pub fn flood_fill_distance(
     let mut queue = std::collections::VecDeque::new();
 
     for seed in seeds {
-        data.set(seed.x() as usize, seed.y() as usize, Some(0));
+        data.set_at(*seed, Some(0));
         queue.push_back((*seed, 0u32));
     }
 
@@ -332,17 +329,13 @@ pub fn flood_fill_distance(
     while let Some((loc, dist)) = queue.pop_front() {
         let next_dist = dist + 1;
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = loc.x() as i16 + dx as i16;
-            let ny = loc.y() as i16 + dy as i16;
-            if nx >= 0 && nx < ROOM_WIDTH as i16 && ny >= 0 && ny < ROOM_HEIGHT as i16 {
-                let ux = nx as usize;
-                let uy = ny as usize;
-                if data.get(ux, uy).is_none() && !terrain.is_wall(nx as u8, ny as u8) {
-                    data.set(ux, uy, Some(next_dist));
+            if let Some(nloc) = loc.checked_add(dx, dy) {
+                if data.get_at(nloc).is_none() && !terrain.is_wall_at(nloc) {
+                    data.set_at(nloc, Some(next_dist));
                     if next_dist > max_distance {
                         max_distance = next_dist;
                     }
-                    queue.push_back((Location::from_coords(ux as u32, uy as u32), next_dist));
+                    queue.push_back((nloc, next_dist));
                 }
             }
         }
@@ -365,7 +358,7 @@ where
     let mut queue = std::collections::VecDeque::new();
 
     for seed in seeds {
-        data.set(seed.x() as usize, seed.y() as usize, Some(0));
+        data.set_at(*seed, Some(0));
         queue.push_back((*seed, 0u32));
     }
 
@@ -374,20 +367,16 @@ where
     while let Some((loc, dist)) = queue.pop_front() {
         let next_dist = dist + 1;
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = loc.x() as i16 + dx as i16;
-            let ny = loc.y() as i16 + dy as i16;
-            if nx >= 0 && nx < ROOM_WIDTH as i16 && ny >= 0 && ny < ROOM_HEIGHT as i16 {
-                let ux = nx as usize;
-                let uy = ny as usize;
-                if data.get(ux, uy).is_none()
-                    && !terrain.is_wall(nx as u8, ny as u8)
-                    && is_passable(nx as u8, ny as u8)
+            if let Some(nloc) = loc.checked_add(dx, dy) {
+                if data.get_at(nloc).is_none()
+                    && !terrain.is_wall_at(nloc)
+                    && is_passable(nloc.x(), nloc.y())
                 {
-                    data.set(ux, uy, Some(next_dist));
+                    data.set_at(nloc, Some(next_dist));
                     if next_dist > max_distance {
                         max_distance = next_dist;
                     }
-                    queue.push_back((Location::from_coords(ux as u32, uy as u32), next_dist));
+                    queue.push_back((nloc, next_dist));
                 }
             }
         }

@@ -87,7 +87,7 @@ impl PlacementLayer for AnchorLayer {
 
         let (x, y, _dt) = positions[index];
         let mut new_state = state.clone();
-        let hub_loc = Location::from_coords(x as u32, y as u32);
+        let hub_loc = Location::from_xy(x, y);
         new_state.set_landmark("hub", hub_loc);
         Some(Ok(new_state))
     }

@@ -10,7 +10,8 @@
 //!
 //! Distance enforcement is handled by expanding the protected region around
 //! structures: valuable structures (spawns, towers, labs, hub) are expanded by
-//! 3 tiles, while mining infrastructure (source containers, mineral containers,
+//! 3 tiles, the controller gets a 1-tile buffer to prevent `attackController`,
+//! while mining infrastructure (source containers, mineral containers,
 //! extractors) uses no buffer. This ensures the min-cut is naturally pushed
 //! outward to maintain safe distances without a separate enforcement pass.
 //!
@@ -19,6 +20,7 @@
 //! defense. Ramparts allow friendly creep movement, maintaining pathfinding
 //! connectivity through the defensive line.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -35,7 +37,7 @@ use std::collections::VecDeque;
 use screeps::constants::StructureType;
 
 /// Infinite capacity sentinel for edges that should never be cut.
-const INF_CAP: u32 = 50 * 50 + 1;
+const INF_CAP: u32 = ROOM_AREA as u32 + 1;
 
 /// Places ramparts via true max-flow min-cut.
 /// Deterministic (1 candidate).
@@ -66,16 +68,21 @@ impl PlacementLayer for DefenseLayer {
             return None;
         }
 
-        let hub = match state.get_landmark("hub") {
-            Some(loc) => loc,
-            None => return Some(Err(())),
-        };
+        if state.get_landmark("hub").is_none() {
+            return Some(Err(()));
+        }
 
         let mut new_state = state.clone();
 
         // Build the set of protected tiles by expanding around structures with
         // per-type buffer distances. This replaces the old enforce_range3 pass.
-        let protected = build_protected_region(hub, state, terrain);
+        // If the required protected region overlaps exit tiles the plan is
+        // rejected -- exit tiles are source nodes in the flow network and
+        // cannot be on the sink side without making the min-cut degenerate.
+        let protected = match build_protected_region(state, analysis, terrain) {
+            Ok(p) => p,
+            Err(()) => return Some(Err(())),
+        };
 
         // Compute min-cut tiles
         let cut_locations = compute_min_cut(&protected, analysis, terrain);
@@ -125,7 +132,7 @@ fn expand_region(
     seeds: impl Iterator<Item = Location>,
     radius: u8,
     terrain: &FastRoomTerrain,
-    out: &mut FnvHashSet<(u8, u8)>,
+    out: &mut FnvHashSet<Location>,
 ) {
     let r = radius as i16;
     for loc in seeds {
@@ -133,11 +140,8 @@ fn expand_region(
             for dx in -r..=r {
                 let x = loc.x() as i16 + dx;
                 let y = loc.y() as i16 + dy;
-                if (0..50).contains(&x)
-                    && (0..50).contains(&y)
-                    && !terrain.is_wall(x as u8, y as u8)
-                {
-                    out.insert((x as u8, y as u8));
+                if xy_in_bounds(x, y) && !terrain.is_wall(x as u8, y as u8) {
+                    out.insert(Location::from_xy(x as u8, y as u8));
                 }
             }
         }
@@ -174,13 +178,11 @@ fn classify_wall_rampart(
     let walls_snapshot: Vec<Location> = is_wall.iter().copied().collect();
     for loc in walls_snapshot {
         let has_adjacent_rampart = NEIGHBORS_8.iter().any(|&(dx, dy)| {
-            let nx = loc.x() as i16 + dx as i16;
-            let ny = loc.y() as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                return false;
+            if let Some(nloc) = loc.checked_add(dx, dy) {
+                cut_set.contains(&nloc) && is_rampart.contains(&nloc)
+            } else {
+                false
             }
-            let nloc = Location::from_coords(nx as u32, ny as u32);
-            cut_set.contains(&nloc) && is_rampart.contains(&nloc)
         });
 
         if !has_adjacent_rampart {
@@ -206,24 +208,25 @@ fn classify_wall_rampart(
 /// Build the set of tiles that the min-cut must protect.
 ///
 /// The protected region is built in layers:
-/// 1. Hub area: 8-tile radius around the hub provides the core protected zone.
-/// 2. Valuable structures (spawns, towers, labs) get a 3-tile buffer.
+/// 1. Valuable structures (spawns, towers, labs, hub) get a 3-tile buffer.
+/// 2. Controller: 1-tile buffer to protect against `attackController`.
 /// 3. All occupied structure tiles are protected with no extra buffer.
 /// 4. Mining infrastructure (source/mineral containers) gets no buffer.
 ///
-/// Exit tiles (row/col 0 or 49) are excluded from the protected region to
-/// avoid creating an impossible min-cut where source and sink overlap.
+/// Returns `Err(())` if the required protected region includes exit tiles
+/// (row/col 0 or 49). Exit tiles are source nodes in the flow network; if
+/// they also appear on the sink side the min-cut becomes degenerate and the
+/// plan cannot produce a valid defensive perimeter.
 fn build_protected_region(
-    hub: Location,
     state: &PlacementState,
+    analysis: &AnalysisOutput,
     terrain: &FastRoomTerrain,
-) -> FnvHashSet<(u8, u8)> {
-    let mut protected: FnvHashSet<(u8, u8)> = FnvHashSet::default();
+) -> Result<FnvHashSet<Location>, ()> {
+    let mut protected: FnvHashSet<Location> = FnvHashSet::default();
 
-    // Hub area: ensure a generous protected zone around the hub
-    expand_region(std::iter::once(hub), 8, terrain, &mut protected);
-
-    // Valuable structures: expand by 3 tiles
+    // Valuable structures: expand by 3 tiles. This covers spawns, towers,
+    // labs, and the hub itself with enough buffer to keep ranged attackers
+    // from hitting them without breaching the perimeter.
     let hub_loc = state.get_landmark("hub");
     let valuable = state
         .get_landmark_set("spawns")
@@ -233,6 +236,18 @@ fn build_protected_region(
         .chain(hub_loc.iter())
         .copied();
     expand_region(valuable, 3, terrain, &mut protected);
+
+    // Controller: protect with a 1-tile buffer. The controller is a
+    // high-value target -- enemies can use `attackController` to drain
+    // downgrade ticks. A 1-tile buffer ensures the min-cut wall is pushed
+    // out far enough that hostile creeps cannot reach an adjacent tile to
+    // attack the controller without first breaching the perimeter.
+    let controller_locs: Vec<Location> = analysis
+        .controller_distances
+        .iter()
+        .map(|(loc, _, _)| *loc)
+        .collect();
+    expand_region(controller_locs.into_iter(), 1, terrain, &mut protected);
 
     // All occupied structure tiles are protected with no extra buffer --
     // this catches everything (extensions, roads, links, etc.) that should
@@ -252,12 +267,16 @@ fn build_protected_region(
         .copied();
     expand_region(mining, 0, terrain, &mut protected);
 
-    // Remove exit tiles from the protected region. Exit tiles are source
-    // nodes in the flow network; if they are also sink-connected the
-    // min-cut becomes degenerate.
-    protected.retain(|&(x, y)| x > 0 && x < 49 && y > 0 && y < 49);
+    // Reject if the protected region overlaps exit tiles. Exit tiles are
+    // source nodes in the flow network; placing them on the sink side too
+    // makes the min-cut degenerate and the wall cannot protect those tiles.
+    let has_exit_overlap = protected.iter().any(|loc| loc.is_border());
+    if has_exit_overlap {
+        trace!("Defense: protected region overlaps exit tiles, rejecting plan");
+        return Err(());
+    }
 
-    protected
+    Ok(protected)
 }
 
 /// Compute min-cut rampart positions using a true max-flow / min-cut algorithm.
@@ -265,7 +284,7 @@ fn build_protected_region(
 /// Constructs a node-split directed graph and runs Dinic's algorithm to find
 /// the minimum vertex cut separating room exits from the protected region.
 fn compute_min_cut(
-    protected: &FnvHashSet<(u8, u8)>,
+    protected: &FnvHashSet<Location>,
     analysis: &crate::pipeline::analysis::AnalysisOutput,
     terrain: &FastRoomTerrain,
 ) -> Vec<Location> {
@@ -277,18 +296,19 @@ fn compute_min_cut(
     // Connected by a directed edge in→out with capacity 1.
 
     let exits = &analysis.exits.all;
-    let exit_set: FnvHashSet<(u8, u8)> = exits.iter().map(|l| (l.x(), l.y())).collect();
+    let exit_set: FnvHashSet<Location> = exits.iter().copied().collect();
 
     // Map (x,y) → sequential tile index (only passable, non-wall tiles).
-    let mut tile_index: [[Option<usize>; 50]; 50] = [[None; 50]; 50];
-    let mut tile_coords: Vec<(u8, u8)> = Vec::new();
+    let mut tile_index: [[Option<usize>; ROOM_WIDTH as usize]; ROOM_HEIGHT as usize] =
+        [[None; ROOM_WIDTH as usize]; ROOM_HEIGHT as usize];
+    let mut tile_coords: Vec<Location> = Vec::new();
 
-    for y in 0u8..50 {
-        for x in 0u8..50 {
+    for y in 0..ROOM_HEIGHT {
+        for x in 0..ROOM_WIDTH {
             if !terrain.is_wall(x, y) {
                 let idx = tile_coords.len();
                 tile_index[x as usize][y as usize] = Some(idx);
-                tile_coords.push((x, y));
+                tile_coords.push(Location::from_xy(x, y));
             }
         }
     }
@@ -344,11 +364,11 @@ fn compute_min_cut(
     }
 
     // Adjacency edges: out[i] → in[j] for each neighbor j of tile i
-    for (i, &(x, y)) in tile_coords.iter().enumerate() {
+    for (i, &loc) in tile_coords.iter().enumerate() {
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = x as i16 + dx as i16;
-            let ny = y as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
+            let nx = loc.x() as i16 + dx as i16;
+            let ny = loc.y() as i16 + dy as i16;
+            if !xy_in_bounds(nx, ny) {
                 continue;
             }
             if let Some(j) = tile_index[nx as usize][ny as usize] {
@@ -358,15 +378,15 @@ fn compute_min_cut(
     }
 
     // Source → in[i] for exit tiles
-    for &(ex, ey) in &exit_set {
-        if let Some(i) = tile_index[ex as usize][ey as usize] {
+    for &eloc in &exit_set {
+        if let Some(i) = tile_index[eloc.x() as usize][eloc.y() as usize] {
             add_edge(&mut builder, &mut capacities, source_idx, i, INF_CAP);
         }
     }
 
     // Out[i] → sink for protected tiles
-    for &(px, py) in protected {
-        if let Some(i) = tile_index[px as usize][py as usize] {
+    for &ploc in protected {
+        if let Some(i) = tile_index[ploc.x() as usize][ploc.y() as usize] {
             add_edge(
                 &mut builder,
                 &mut capacities,
@@ -399,10 +419,10 @@ fn compute_min_cut(
         let out_node_id = graph.node_id(nodes[num_tiles + i]);
         // In-node on source side, out-node on sink side → this tile is cut
         if cut_set.contains(&in_node_id) && !cut_set.contains(&out_node_id) {
-            let (x, y) = tile_coords[i];
+            let loc = tile_coords[i];
             // Only place ramparts on buildable interior tiles
-            if x > 0 && x < 49 && y > 0 && y < 49 {
-                ramparts.push(Location::from_coords(x as u32, y as u32));
+            if !loc.is_border() {
+                ramparts.push(loc);
             }
         }
     }
@@ -436,13 +456,9 @@ fn validate_all_structures_defended(
     let mut remote_area: FnvHashSet<Location> = FnvHashSet::default();
     for (mineral_loc, _, _) in &analysis.mineral_distances {
         remote_area.insert(*mineral_loc);
-        let mx = mineral_loc.x();
-        let my = mineral_loc.y();
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = mx as i16 + dx as i16;
-            let ny = my as i16 + dy as i16;
-            if (0..50).contains(&nx) && (0..50).contains(&ny) {
-                remote_area.insert(Location::from_coords(nx as u32, ny as u32));
+            if let Some(nloc) = mineral_loc.checked_add(dx, dy) {
+                remote_area.insert(nloc);
             }
         }
     }
@@ -452,13 +468,9 @@ fn validate_all_structures_defended(
     // outside the wall when the source is near an exit.
     for (source_loc, _, _) in &analysis.source_distances {
         remote_area.insert(*source_loc);
-        let sx = source_loc.x();
-        let sy = source_loc.y();
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = sx as i16 + dx as i16;
-            let ny = sy as i16 + dy as i16;
-            if (0..50).contains(&nx) && (0..50).contains(&ny) {
-                remote_area.insert(Location::from_coords(nx as u32, ny as u32));
+            if let Some(nloc) = source_loc.checked_add(dx, dy) {
+                remote_area.insert(nloc);
             }
         }
     }
@@ -495,19 +507,15 @@ fn validate_all_structures_defended(
 
     while let Some(loc) = queue.pop_front() {
         for &(dx, dy) in &NEIGHBORS_8 {
-            let nx = loc.x() as i16 + dx as i16;
-            let ny = loc.y() as i16 + dy as i16;
-            if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                continue;
-            }
-            let ux = nx as u8;
-            let uy = ny as u8;
-            let nloc = Location::from_coords(ux as u32, uy as u32);
+            let nloc = match loc.checked_add(dx, dy) {
+                Some(l) => l,
+                None => continue,
+            };
 
             if outside.contains(&nloc) {
                 continue;
             }
-            if terrain.is_wall(ux, uy) {
+            if terrain.is_wall(nloc.x(), nloc.y()) {
                 continue;
             }
             // Cut tiles (walls/ramparts) block the flood-fill.

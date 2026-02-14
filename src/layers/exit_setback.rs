@@ -10,6 +10,7 @@
 
 use crate::constants::*;
 use crate::layer::*;
+use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
@@ -65,14 +66,15 @@ impl PlacementLayer for ExitSetbackLayer {
         // within the setback distance of any exit tile.
         for y in 0..ROOM_HEIGHT as usize {
             for x in 0..ROOM_WIDTH as usize {
+                let loc = Location::from_xy(x as u8, y as u8);
                 // Skip tiles that are already walls -- terrain blocks them naturally.
-                if terrain.is_wall(x as u8, y as u8) {
+                if terrain.is_wall_at(loc) {
                     continue;
                 }
 
                 if let Some(dist) = analysis.exit_distances.get(x, y) {
                     if *dist <= self.distance {
-                        new_state.exclude_tile(x as u8, y as u8);
+                        new_state.exclude_tile(loc);
                     }
                 }
             }

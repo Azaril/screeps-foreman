@@ -6,6 +6,7 @@
 //! from the hub. This prevents newly spawned creeps from being placed in dead-end
 //! pockets that are disconnected from the rest of the base.
 
+use crate::constants::*;
 use crate::layer::*;
 use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
@@ -76,23 +77,16 @@ impl PlacementLayer for ReachabilityLayer {
         queue.push_back((hub, 0));
 
         while let Some((loc, dist)) = queue.pop_front() {
-            let x = loc.x();
-            let y = loc.y();
-
             for &(dx, dy) in &NEIGHBORS_8 {
-                let nx = x as i16 + dx as i16;
-                let ny = y as i16 + dy as i16;
-                if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                    continue;
-                }
-                let ux = nx as u8;
-                let uy = ny as u8;
-                let nloc = Location::from_coords(ux as u32, uy as u32);
+                let nloc = match loc.checked_add(dx, dy) {
+                    Some(l) => l,
+                    None => continue,
+                };
 
                 if reachable.contains_key(&nloc) {
                     continue;
                 }
-                if terrain.is_wall(ux, uy) {
+                if terrain.is_wall(nloc.x(), nloc.y()) {
                     continue;
                 }
 
@@ -116,13 +110,9 @@ impl PlacementLayer for ReachabilityLayer {
         let mut mineral_area: FnvHashSet<Location> = FnvHashSet::default();
         for (mineral_loc, _, _) in &analysis.mineral_distances {
             mineral_area.insert(*mineral_loc);
-            let mx = mineral_loc.x();
-            let my = mineral_loc.y();
             for &(dx, dy) in &NEIGHBORS_8 {
-                let nx = mx as i16 + dx as i16;
-                let ny = my as i16 + dy as i16;
-                if (0..50).contains(&nx) && (0..50).contains(&ny) {
-                    mineral_area.insert(Location::from_coords(nx as u32, ny as u32));
+                if let Some(nloc) = mineral_loc.checked_add(dx, dy) {
+                    mineral_area.insert(nloc);
                 }
             }
         }
@@ -145,17 +135,13 @@ impl PlacementLayer for ReachabilityLayer {
             }
 
             // Find the nearest adjacent reachable tile and its distance
-            let x = loc.x();
-            let y = loc.y();
             let mut best_path_dist: Option<u32> = None;
 
             for &(dx, dy) in &NEIGHBORS_8 {
-                let nx = x as i16 + dx as i16;
-                let ny = y as i16 + dy as i16;
-                if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                    continue;
-                }
-                let nloc = Location::from_coords(nx as u32, ny as u32);
+                let nloc = match loc.checked_add(dx, dy) {
+                    Some(l) => l,
+                    None => continue,
+                };
                 if let Some(&dist) = reachable.get(&nloc) {
                     best_path_dist = Some(match best_path_dist {
                         Some(current) => current.min(dist),
@@ -169,8 +155,8 @@ impl PlacementLayer for ReachabilityLayer {
                     // No adjacent reachable tile -- structure is unreachable
                     trace!(
                         "Reachability: unreachable structure at ({}, {}), reachable_tiles={}",
-                        x,
-                        y,
+                        loc.x(),
+                        loc.y(),
                         reachable.len()
                     );
                     return Some(Err(()));
@@ -182,7 +168,7 @@ impl PlacementLayer for ReachabilityLayer {
                     if path_dist > max_allowed {
                         trace!(
                             "Reachability: excessive detour to ({}, {}): path_dist={}, chebyshev={}, max_allowed={}",
-                            x, y, path_dist, chebyshev, max_allowed
+                            loc.x(), loc.y(), path_dist, chebyshev, max_allowed
                         );
                         return Some(Err(()));
                     }
@@ -202,21 +188,14 @@ impl PlacementLayer for ReachabilityLayer {
                 continue;
             }
 
-            let x = loc.x();
-            let y = loc.y();
-
             for &(dx, dy) in &NEIGHBORS_8 {
-                let nx = x as i16 + dx as i16;
-                let ny = y as i16 + dy as i16;
-                if !(0..50).contains(&nx) || !(0..50).contains(&ny) {
-                    continue;
-                }
-                let ux = nx as u8;
-                let uy = ny as u8;
-                let nloc = Location::from_coords(ux as u32, uy as u32);
+                let nloc = match loc.checked_add(dx, dy) {
+                    Some(l) => l,
+                    None => continue,
+                };
 
                 // Skip walls -- creeps cannot spawn onto walls
-                if terrain.is_wall(ux, uy) {
+                if terrain.is_wall(nloc.x(), nloc.y()) {
                     continue;
                 }
 
@@ -231,7 +210,7 @@ impl PlacementLayer for ReachabilityLayer {
                 if !reachable.contains_key(&nloc) {
                     trace!(
                         "Reachability: spawn at ({}, {}) has unreachable adjacent walkable tile ({}, {})",
-                        x, y, ux, uy
+                        loc.x(), loc.y(), nloc.x(), nloc.y()
                     );
                     return Some(Err(()));
                 }

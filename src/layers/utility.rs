@@ -6,7 +6,9 @@
 //! Observer are placed at moderate distance since they are rarely interacted
 //! with.
 
+use crate::constants::*;
 use crate::layer::*;
+use crate::location::*;
 use crate::pipeline::analysis::AnalysisOutput;
 use crate::terrain::*;
 
@@ -48,15 +50,12 @@ impl PlacementLayer for UtilityLayer {
             None => return Some(Err(())),
         };
 
-        let ax = hub.x() as i16;
-        let ay = hub.y() as i16;
         let mut new_state = state.clone();
 
         // Place factory near hub (within 2-3 tiles) -- needs frequent filler access
         if !has_structure_type(&new_state, StructureType::Factory) {
             place_near_hub(
-                ax,
-                ay,
+                hub,
                 2,
                 4,
                 terrain,
@@ -69,8 +68,7 @@ impl PlacementLayer for UtilityLayer {
         // Place power spawn near hub (within 2-3 tiles) -- needs frequent filler access
         if !has_structure_type(&new_state, StructureType::PowerSpawn) {
             place_near_hub(
-                ax,
-                ay,
+                hub,
                 2,
                 4,
                 terrain,
@@ -82,23 +80,13 @@ impl PlacementLayer for UtilityLayer {
 
         // Place nuker at moderate distance from hub
         if !has_structure_type(&new_state, StructureType::Nuker) {
-            place_near_hub(
-                ax,
-                ay,
-                2,
-                6,
-                terrain,
-                &mut new_state,
-                StructureType::Nuker,
-                8,
-            );
+            place_near_hub(hub, 2, 6, terrain, &mut new_state, StructureType::Nuker, 8);
         }
 
         // Place observer at a moderate distance from hub
         if !has_structure_type(&new_state, StructureType::Observer) {
             place_near_hub(
-                ax,
-                ay,
+                hub,
                 3,
                 10,
                 terrain,
@@ -124,8 +112,7 @@ fn has_structure_type(state: &PlacementState, st: StructureType) -> bool {
 /// from the hub. Searches outward from `min_radius` to `max_radius`.
 #[allow(clippy::too_many_arguments)]
 fn place_near_hub(
-    ax: i16,
-    ay: i16,
+    hub: Location,
     min_radius: i16,
     max_radius: i16,
     terrain: &FastRoomTerrain,
@@ -133,6 +120,9 @@ fn place_near_hub(
     structure_type: StructureType,
     rcl: u8,
 ) {
+    let ax = hub.x() as i16;
+    let ay = hub.y() as i16;
+    let border = ROOM_BUILD_BORDER as i16;
     for radius in min_radius..=max_radius {
         for dy in -radius..=radius {
             for dx in -radius..=radius {
@@ -141,15 +131,16 @@ fn place_near_hub(
                 }
                 let x = ax + dx;
                 let y = ay + dy;
-                if (2..48).contains(&x) && (2..48).contains(&y) {
-                    let ux = x as u8;
-                    let uy = y as u8;
-                    if !terrain.is_wall(ux, uy)
-                        && !state.has_any_structure(ux, uy)
-                        && !state.is_excluded(ux, uy)
-                        && !has_road_at(state, ux, uy)
+                if (border..ROOM_WIDTH as i16 - border).contains(&x)
+                    && (border..ROOM_HEIGHT as i16 - border).contains(&y)
+                {
+                    let loc = Location::from_xy(x as u8, y as u8);
+                    if !terrain.is_wall_at(loc)
+                        && !state.has_any_structure(loc)
+                        && !state.is_excluded(loc)
+                        && !has_road_at(state, loc)
                     {
-                        state.place_structure(ux, uy, structure_type, rcl);
+                        state.place_structure(loc, structure_type, rcl);
                         return;
                     }
                 }
@@ -159,8 +150,7 @@ fn place_near_hub(
 }
 
 /// Check if a tile has a road placed on it.
-fn has_road_at(state: &PlacementState, x: u8, y: u8) -> bool {
-    let loc = crate::location::Location::from_coords(x as u32, y as u32);
+fn has_road_at(state: &PlacementState, loc: Location) -> bool {
     state
         .structures
         .get(&loc)
