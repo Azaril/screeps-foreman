@@ -180,6 +180,9 @@ impl SearchEngine {
             .expect("layers must be injected before stepping");
 
         loop {
+            if !budget.has_budget() {
+                return SearchResult::Running;
+            }
             // If the stack is empty, the search is complete
             if self.stack.is_empty() {
                 debug!(

@@ -36,9 +36,12 @@ impl FinalizePhase {
     pub fn tick(
         &mut self,
         _data_source: &dyn PlannerRoomDataSource,
-        _budget: &CpuBudget,
+        budget: &CpuBudget,
     ) -> PhaseResult<Plan> {
         loop {
+            if !budget.has_budget() {
+                return PhaseResult::Running;
+            }
             match &self.step {
                 FinalizeStep::BuildOrder => {
                     self.step = FinalizeStep::Complete;

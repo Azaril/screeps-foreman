@@ -107,6 +107,9 @@ impl AnalysisPhase {
         let terrain = data_source.get_terrain();
 
         loop {
+            if !budget.has_budget() {
+                return PhaseResult::Running;
+            }
             match &self.step {
                 AnalysisStep::DistanceTransform => {
                     self.partial.dist_transform = Some(distance_transform(terrain));
@@ -205,6 +208,9 @@ impl AnalysisPhase {
                     }
                 }
                 AnalysisStep::ExitDistances => {
+                    if !budget.has_budget() {
+                        return PhaseResult::Running;
+                    }
                     let exits = self.partial.exits.as_ref().unwrap();
                     let (exit_dist, exit_max) = flood_fill_distance(terrain, &exits.all);
                     self.partial.exit_distances = Some(exit_dist);
