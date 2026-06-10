@@ -6,6 +6,7 @@ pub mod pipeline;
 pub mod plan;
 pub mod planner;
 pub mod room_data;
+pub mod room_scoring;
 pub mod scoring;
 pub mod search;
 pub mod stamps;
