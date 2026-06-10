@@ -145,11 +145,19 @@ impl PlacementLayer for RoadNetworkLayer {
         // Track which tiles are part of paths computed by this layer.
         let mut path_tiles: FnvHashSet<Location> = FnvHashSet::default();
 
+        // Upgrade work slots carry parked upgraders (ADR 0009 D2):
+        // penalize routing through them so roads reach the controller
+        // container via the reserved approach tile instead of the
+        // parking ring. Penalized, not forbidden — cramped rooms may
+        // have no alternative.
+        let penalized: FnvHashSet<Location> =
+            state.get_landmark_set("upgrade_area").iter().copied().collect();
+
         // Route to each destination incrementally. Already-placed road tiles
         // have zero movement cost, so A* strongly prefers reusing them.
         for dest in &destinations {
             if let Some((path, _cost)) =
-                find_path(hub, *dest, terrain, &state.structures, &road_tiles)
+                find_path(hub, *dest, terrain, &state.structures, &road_tiles, &penalized)
             {
                 trace!(
                     "{}: path to ({},{}) has {} tiles",
@@ -323,7 +331,9 @@ fn all_buildings_destinations(state: &PlacementState) -> Vec<Location> {
 ///   - Plains: 10 (scaled for tie-breaking resolution)
 ///   - Swamp:  60 (reflects ~5x higher maintenance cost of swamp roads)
 ///   - Container: +100 (walkable but adds fatigue; strongly discouraged)
-///   - Other occupied structure: +500 (effectively blocked)
+///   - Penalized tile (e.g. upgrade work slot — carries a parked
+///     creep): +200 (strongly discouraged, never blocked)
+///   - Other occupied structure: impassable
 ///
 /// The swamp cost (60) is set high relative to plains (10) to aggressively
 /// avoid swamp roads. In Screeps, roads on swamp decay at ~5x the rate of
@@ -338,6 +348,7 @@ pub(crate) fn find_path(
     terrain: &FastRoomTerrain,
     structures: &FnvHashMap<Location, Vec<RoomItem>>,
     existing_roads: &FnvHashSet<Location>,
+    penalized: &FnvHashSet<Location>,
 ) -> Option<(Vec<Location>, u32)> {
     let start_pos = (start.x() as i16, start.y() as i16);
     let goal_pos = (goal.x() as i16, goal.y() as i16);
@@ -404,6 +415,10 @@ pub(crate) fn find_path(
                         0u32
                     };
 
+                    // Parked-creep tiles (upgrade work slots): strongly
+                    // discouraged, never blocked.
+                    let slot_penalty = if penalized.contains(&loc) { 200u32 } else { 0u32 };
+
                     // Tie-breaking: small discount for tiles adjacent to an
                     // existing road.  This deterministically collapses
                     // equal-cost parallel paths onto the existing network.
@@ -416,7 +431,8 @@ pub(crate) fn find_path(
                         0u32
                     };
 
-                    let cost = (base_cost + structure_penalty).saturating_sub(adjacency_discount);
+                    let cost = (base_cost + structure_penalty + slot_penalty)
+                        .saturating_sub(adjacency_discount);
                     Some(((nx, ny), cost))
                 })
                 .collect::<Vec<_>>()

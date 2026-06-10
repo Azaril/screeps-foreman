@@ -2,6 +2,25 @@ pub use screeps_common::constants::*;
 
 use screeps::constants::StructureType;
 
+/// Controller-infrastructure placement contract, shared with the bot.
+/// screeps-ibex imports these so classification (what the bot treats as
+/// THE controller container/link) and placement (where the planner puts
+/// them) can never drift apart — the live 2-vs-3 range-mismatch bug
+/// class becomes unrepresentable.
+///
+/// The controller container is placed within this Chebyshev range of
+/// the controller.
+pub const CONTROLLER_CONTAINER_MAX_RANGE: u32 = 3;
+
+/// The controller link is placed within this Chebyshev range of the
+/// controller (the bot classifies any link in this range as
+/// controller-feeding — `structure_data.rs`).
+pub const CONTROLLER_LINK_MAX_RANGE: u32 = 3;
+
+/// `upgradeController` intent range (engine constant,
+/// docs.screeps.com/api — Creep.upgradeController, range 3).
+pub const CONTROLLER_UPGRADE_RANGE: u32 = 3;
+
 /// Maximum number of a given structure type allowed at a given RCL.
 /// Returns 0 if the structure is not available at that RCL.
 /// Based on the Screeps API: <https://docs.screeps.com/control.html>
