@@ -26,8 +26,9 @@ use screeps::constants::StructureType;
 
 /// Result of a planning tick.
 pub enum PlanResult {
-    /// Planning is still in progress.
-    Running(PlanningState),
+    /// Planning is still in progress. Boxed: the state dwarfs the
+    /// other variants (clippy large-enum-variant).
+    Running(Box<PlanningState>),
     /// Planning completed successfully.
     Complete(Plan),
     /// Planning failed.
@@ -134,7 +135,7 @@ pub fn tick_planning(
     match new_state {
         PlanningState::Complete(plan) => PlanResult::Complete(plan),
         PlanningState::Failed(msg) => PlanResult::Failed(msg),
-        other => PlanResult::Running(other),
+        other => PlanResult::Running(Box::new(other)),
     }
 }
 

@@ -55,8 +55,10 @@ pub enum PlanningState {
         #[serde(default = "default_prune_margin")]
         prune_margin: f32,
     },
-    /// Tree search over placement layers.
-    Searching(SearchEngine),
+    /// Tree search over placement layers. Boxed: the engine dwarfs the
+    /// other variants (clippy large-enum-variant); `Box<T>` serializes
+    /// identically to `T`, so the seg-60 resume format is unchanged.
+    Searching(Box<SearchEngine>),
     /// Finalization (build order, rich output from the best plan).
     Finalizing(finalize::FinalizePhase),
     /// Terminal states.
@@ -90,7 +92,7 @@ pub fn tick_pipeline(
                     // Transition to Searching -- analysis is stored once on the engine
                     let initial_state = PlacementState::new();
                     let engine = SearchEngine::new(layers, output, initial_state, prune_margin);
-                    PlanningState::Searching(engine)
+                    PlanningState::Searching(Box::new(engine))
                 }
             }
         }
